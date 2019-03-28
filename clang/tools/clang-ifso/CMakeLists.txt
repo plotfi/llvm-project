@@ -5,7 +5,6 @@ set(LLVM_LINK_COMPONENTS
 
 add_clang_tool(clang-ifso
   clang-ifso.cpp
-  YamlPrintManager.cpp
   )
 
 target_link_libraries(clang-ifso

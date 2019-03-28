@@ -11,6 +11,8 @@
 #include "llvm/Option/ArgList.h"
 #include "llvm/Option/OptTable.h"
 
+#include "IfsoFormatFactory.h"
+
 using namespace clang;
 using namespace clang::index;
 using namespace clang::tooling;
@@ -68,10 +70,6 @@ public:
   bool ProducedSymbols = false;
 };
 
-void PrintYamlSymbols(const std::vector<std::string> &Names,
-                      llvm::raw_ostream &OS);
-void PrintYamlHeader(llvm::Triple &T, llvm::raw_ostream &OS);
-
 int main(int argc, const char **argv) {
   cl::OptionCategory Category("clang-ifso options");
   CommonOptionsParser Opt(argc, argv, Category);
@@ -81,11 +79,6 @@ int main(int argc, const char **argv) {
   InputArgList Args = Opts->ParseArgs(llvm::makeArrayRef(argv + 1, argc),
                                       MissingArgIndex, MissingArgCount);
 
-  std::string TripleStr =
-      llvm::Triple::normalize(Args.getLastArgValue(OPT_triple));
-  if (TripleStr == "unknown" || TripleStr == "")
-    TripleStr = llvm::sys::getProcessTriple();
-  llvm::Triple T(TripleStr);
 
   ClangTool Tool(Opt.getCompilations(), Opt.getSourcePathList());
 
@@ -108,7 +101,18 @@ int main(int argc, const char **argv) {
   if (Tool.run(newFrontendActionFactory(&Finder).get()))
     return EXIT_FAILURE;
 
-  PrintYamlHeader(T, llvm::errs());
-  PrintYamlSymbols(Handler.getVisibleNames(), llvm::errs());
+  std::string TripleStr =
+      llvm::Triple::normalize(Args.getLastArgValue(OPT_triple));
+  if (TripleStr == "unknown" || TripleStr == "")
+    TripleStr = llvm::sys::getProcessTriple();
+  llvm::Triple T(TripleStr);
+
+  auto Factory = IfsoFormatFactory::getInstance();
+  auto Format = Factory.createIfsoFormat(T);
+
+  for (auto &Name : Handler.getVisibleNames())
+    Format.get()->appendSymbolName(Name);
+  Format.get()->writeIfsoFile("foo");
+
   return EXIT_SUCCESS;
 }
