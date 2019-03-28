@@ -112,7 +112,7 @@ int main(int argc, const char **argv) {
 
   for (auto &Name : Handler.getVisibleNames())
     Format.get()->appendSymbolName(Name);
-  Format.get()->writeIfsoFile("foo");
+  Format.get()->writeIfsoFile(llvm::errs());
 
   return EXIT_SUCCESS;
 }

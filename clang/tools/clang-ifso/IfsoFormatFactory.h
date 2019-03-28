@@ -38,16 +38,14 @@ public:
   virtual void appendSymbolName(const std::string &Name) {
     SymbolNames.push_back(Name);
   }
-  virtual void writeIfsoFile(std::string Filename) = 0;
+  virtual void writeIfsoFile(llvm::raw_ostream &OS) = 0;
 };
 
 struct YamlElfIfsoFormat : public IfsoFormat {
   YamlElfIfsoFormat(llvm::Triple &T) : IfsoFormat(T) {}
   YamlElfIfsoFormat() = delete;
   virtual ~YamlElfIfsoFormat() {}
-  virtual void writeIfsoFile(std::string Filename) override {
-    auto &OS = llvm::errs();
-
+  virtual void writeIfsoFile(llvm::raw_ostream &OS) override {
     llvm::StringRef MachineType =
         llvm::StringSwitch<llvm::StringRef>(T.getArchName())
             .Case("x86_64", "EM_X86_64")
