@@ -34,6 +34,14 @@ AST_MATCHER(NamedDecl, isVisible) {
   return Node.getVisibility() == DefaultVisibility;
 }
 
+AST_POLYMORPHIC_MATCHER(isExposableDefinition,
+                        AST_POLYMORPHIC_SUPPORTED_TYPES(TagDecl, VarDecl,
+                                                        ObjCMethodDecl,
+                                                        FunctionDecl)) {
+  // auto DeclAndDef =  Node.isThisDeclarationADefinition();
+  return true;
+}
+
 AST_POLYMORPHIC_MATCHER(hasDiscardableLinkage,
                         AST_POLYMORPHIC_SUPPORTED_TYPES(FunctionDecl,
                                                         VarDecl)) {
@@ -80,13 +88,16 @@ int main(int argc, const char **argv) {
                                       MissingArgIndex, MissingArgCount);
 
 
+
   ClangTool Tool(Opt.getCompilations(), Opt.getSourcePathList());
 
   auto Adjuster = getInsertArgumentAdjuster("-Qunused-arguments");
+  auto VisibilityAdjuster = getInsertArgumentAdjuster("-fvisibility=hidden");
   Tool.appendArgumentsAdjuster(Adjuster);
+  Tool.appendArgumentsAdjuster(VisibilityAdjuster);
 
   auto VisibleDef =
-      allOf(isDefinition(), isVisible(), unless(hasDiscardableLinkage()),
+      allOf(isExposableDefinition(), isVisible(), unless(hasDiscardableLinkage()),
             unless(isStaticStorageClass()));
   auto Matcher = namedDecl(anyOf(
       functionDecl(VisibleDef), varDecl(VisibleDef, unless(hasLocalStorage())),

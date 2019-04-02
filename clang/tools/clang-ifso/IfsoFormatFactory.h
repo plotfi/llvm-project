@@ -19,6 +19,8 @@
 #include "llvm/ADT/Triple.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include "ElfIfsoWriter.h"
+
 #include <memory>
 #include <string>
 #include <vector>
@@ -96,6 +98,27 @@ struct YamlElfIfsoFormat : public IfsoFormat {
 
     OS << "...\n";
 
+  }
+};
+
+struct ElfIfsoFormat : public IfsoFormat {
+  ElfIfsoFormat(llvm::Triple &T) : IfsoFormat(T) {}
+  ElfIfsoFormat() = delete;
+  virtual ~ElfIfsoFormat() {}
+  virtual void writeIfsoFile(llvm::raw_ostream &OS) override {
+    // XXX: This needs to be more comprehensive. Please see ELFYAML.h
+    if (T.getArch() == llvm::Triple::x86_64 ||
+        T.getArch() == llvm::Triple::aarch64) {
+      if (T.isLittleEndian())
+        writeELF<llvm::object::ELF64LE>(SymbolNames, OS);
+      else
+        writeELF<llvm::object::ELF64BE>(SymbolNames, OS);
+    } else {
+      if (T.isLittleEndian())
+        writeELF<llvm::object::ELF32LE>(SymbolNames, OS);
+      else
+        writeELF<llvm::object::ELF32BE>(SymbolNames, OS);
+    }
   }
 };
 
