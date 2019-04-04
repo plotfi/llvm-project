@@ -19,7 +19,8 @@
 #include "llvm/ADT/Triple.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include "ElfIfsoWriter.h"
+#include "llvm/ObjectYAML/ObjectYAML.h"
+#include "llvm/Support/YAMLTraits.h"
 
 #include <memory>
 #include <string>
@@ -27,6 +28,12 @@
 
 #ifndef _IFSO_FORMAT_FACTORY_
 #define _IFSO_FORMAT_FACTORY_
+
+
+void Symbols2Yaml(const llvm::Triple &T,
+                  const std::vector<std::string> &SymbolNames,
+                  llvm::raw_ostream &OS);
+int convertYAML(llvm::yaml::Input &YIn, llvm::raw_ostream &Out);
 
 class IfsoFormat {
 protected:
@@ -48,54 +55,7 @@ struct YamlElfIfsoFormat : public IfsoFormat {
   YamlElfIfsoFormat() = delete;
   virtual ~YamlElfIfsoFormat() {}
   virtual void writeIfsoFile(llvm::raw_ostream &OS) override {
-    llvm::StringRef MachineType =
-        llvm::StringSwitch<llvm::StringRef>(T.getArchName())
-            .Case("x86_64", "EM_X86_64")
-            .Case("x86", "EM_386")
-            .Case("i386", "EM_386")
-            .Case("i686", "EM_386")
-            .Case("aarch64", "EM_AARCH64")
-            .Case("arm", "EM_ARM")
-            .Default("EM_X86_64");
-    OS << "--- !ELF\n";
-    OS << "FileHeader:\n";
-    OS << "  Class:           ELFCLASS";
-    OS << (T.isArch64Bit() ? "64" : "32");
-    OS << "\n";
-    OS << "  Data:            ELFDATA2";
-    OS << (T.isLittleEndian() ? "LSB" : "MSB");
-    OS << "\n";
-    OS << "  Type:            ET_DYN\n";
-    OS << "  Machine:         ";
-    OS << MachineType << "\n";
-    OS << "Sections:\n";
-    OS << "  - Name:            .text\n";
-    OS << "    Type:            SHT_PROGBITS\n";
-    OS << "Symbols:\n";
-    OS << "  - Name:            .dynsym\n";
-    OS << "    Type:            STT_SECTION\n";
-    OS << "    Section:         .dynsym\n";
-    OS << "  - Name:            .dynstr\n";
-    OS << "    Type:            STT_SECTION\n";
-    OS << "    Section:         .dynstr\n";
-
-    for (auto Name : SymbolNames) {
-      OS << "  - Name:            " << Name << "\n";
-      OS << "    Type:            STT_FUNC\n";
-      OS << "    Section:         .text\n";
-      OS << "    Binding:         STB_GLOBAL\n";
-    }
-
-    OS << "DynamicSymbols:\n";
-    for (auto Name : SymbolNames) {
-      OS << "  - Name:            " << Name << "\n";
-      OS << "    Type:            STT_FUNC\n";
-      OS << "    Section:         .text\n";
-      OS << "    Binding:         STB_GLOBAL\n";
-    }
-
-    OS << "...\n";
-
+    Symbols2Yaml(T, SymbolNames, OS);
   }
 };
 
@@ -104,19 +64,15 @@ struct ElfIfsoFormat : public IfsoFormat {
   ElfIfsoFormat() = delete;
   virtual ~ElfIfsoFormat() {}
   virtual void writeIfsoFile(llvm::raw_ostream &OS) override {
-    // XXX: This needs to be more comprehensive. Please see ELFYAML.h
-    if (T.getArch() == llvm::Triple::x86_64 ||
-        T.getArch() == llvm::Triple::aarch64) {
-      if (T.isLittleEndian())
-        writeELF<llvm::object::ELF64LE>(SymbolNames, OS);
-      else
-        writeELF<llvm::object::ELF64BE>(SymbolNames, OS);
-    } else {
-      if (T.isLittleEndian())
-        writeELF<llvm::object::ELF32LE>(SymbolNames, OS);
-      else
-        writeELF<llvm::object::ELF32BE>(SymbolNames, OS);
-    }
+    std::string Yaml;
+    llvm::raw_string_ostream YOS(Yaml);
+    Symbols2Yaml(T, SymbolNames, YOS);
+
+    llvm::StringRef Buffer(Yaml);
+    llvm::yaml::Input YIn(Buffer);
+
+    int Res = convertYAML(YIn, OS);
+    OS.flush();
   }
 };
 
@@ -129,8 +85,11 @@ public:
     return instance;
   }
 
-  std::unique_ptr<IfsoFormat> createIfsoFormat(llvm::Triple &T) {
-    return llvm::make_unique<YamlElfIfsoFormat>(T);
+  std::unique_ptr<IfsoFormat> createIfsoFormat(llvm::Triple &T, bool DebugMode = false) {
+    if (DebugMode)
+      return llvm::make_unique<YamlElfIfsoFormat>(T);
+    else
+      return llvm::make_unique<ElfIfsoFormat>(T);
   }
 };
 
