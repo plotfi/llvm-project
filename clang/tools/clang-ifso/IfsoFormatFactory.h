@@ -72,28 +72,26 @@ struct YamlElfIfsoFormat : public IfsoFormat {
     OS << "  - Name:            .text\n";
     OS << "    Type:            SHT_PROGBITS\n";
     OS << "Symbols:\n";
-    OS << "  Local:\n";
-    OS << "    - Name:            .dynsym\n";
-    OS << "      Type:            STT_SECTION\n";
-    OS << "      Section:         .dynsym\n";
-    OS << "    - Name:            .dynstr\n";
-    OS << "      Type:            STT_SECTION\n";
-    OS << "      Section:         .dynstr\n";
+    OS << "  - Name:            .dynsym\n";
+    OS << "    Type:            STT_SECTION\n";
+    OS << "    Section:         .dynsym\n";
+    OS << "  - Name:            .dynstr\n";
+    OS << "    Type:            STT_SECTION\n";
+    OS << "    Section:         .dynstr\n";
 
-    OS << "  Global:\n";
     for (auto Name : SymbolNames) {
-      OS << "    - Name:            " << Name << "\n";
-      OS << "      Type:            STT_FUNC\n";
-      OS << "      Section:         .text\n";
+      OS << "  - Name:            " << Name << "\n";
+      OS << "    Type:            STT_FUNC\n";
+      OS << "    Section:         .text\n";
+      OS << "    Binding:         STB_GLOBAL\n";
     }
 
     OS << "DynamicSymbols:\n";
-
-    OS << "  Global:\n";
     for (auto Name : SymbolNames) {
-      OS << "    - Name:            " << Name << "\n";
-      OS << "      Type:            STT_FUNC\n";
-      OS << "      Section:         .text\n";
+      OS << "  - Name:            " << Name << "\n";
+      OS << "    Type:            STT_FUNC\n";
+      OS << "    Section:         .text\n";
+      OS << "    Binding:         STB_GLOBAL\n";
     }
 
     OS << "...\n";
