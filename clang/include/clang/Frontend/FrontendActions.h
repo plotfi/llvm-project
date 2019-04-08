@@ -119,6 +119,18 @@ protected:
   bool hasASTFileSupport() const override { return false; }
 };
 
+class GenerateIFSOAction : public ASTFrontendAction {
+protected:
+  std::unique_ptr<ASTConsumer> CreateASTConsumer(CompilerInstance &CI,
+                                                 StringRef InFile) override;
+
+  TranslationUnitKind getTranslationUnitKind() override {
+    return TU_Module;
+  }
+
+  bool hasASTFileSupport() const override { return false; }
+};
+
 class GenerateModuleFromModuleMapAction : public GenerateModuleAction {
 private:
   bool BeginSourceFileAction(CompilerInstance &CI) override;

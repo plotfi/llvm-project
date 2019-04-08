@@ -25,6 +25,8 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Support/YAMLTraits.h"
+#include "clang/AST/RecursiveASTVisitor.h"
+#include "clang/Index/CodegenNameGenerator.h"
 #include <memory>
 #include <system_error>
 
@@ -156,6 +158,147 @@ bool GeneratePCHAction::shouldEraseOutputFiles() {
 bool GeneratePCHAction::BeginSourceFileAction(CompilerInstance &CI) {
   CI.getLangOpts().CompilingPCH = true;
   return true;
+}
+
+class IFSOFunctionsConsumer : public ASTConsumer {
+  CompilerInstance &Instance;
+  std::set<std::string> ParsedTemplates;
+  bool UseOnlyToplevelDecls = false;
+
+  bool WriteNamedDecl(const NamedDecl *ND, bool isLate) {
+    index::CodegenNameGenerator CGNameGen(ND->getASTContext());
+    std::string MangledName = CGNameGen.getName(ND);
+    llvm::errs() << "\n\t" << (isLate ? "late-parsed-decl" : "top-level-decl")
+                 << ": [" << MangledName << "] [" << ND->getNameAsString()
+                 << "]";
+    return true;
+  }
+
+  bool HandleNamespaceDecl(const NamespaceDecl *NSD, bool isFromTU = false,
+                           bool isLate = false) {
+    if (!NSD)
+      return false;
+    for (auto *I : NSD->decls())
+      if (const auto *ND = dyn_cast<NamedDecl>(I))
+        if (!HandleNamedDecl(ND, isFromTU, isLate))
+          return false;
+    return true;
+  }
+
+  bool HandleNamedDecl(const NamedDecl *ND, bool isFromTU = false,
+                       bool isLate = false) {
+    if (!isFromTU && !UseOnlyToplevelDecls)
+      return true;
+    if (!ND)
+      return false;
+    if (const auto *VD = dyn_cast<VarDecl>(ND))
+      return WriteNamedDecl(VD, isLate);
+    if (const auto *TTPD = dyn_cast<TemplateTypeParmDecl>(ND))
+      return true;
+    if (const auto *NSD = dyn_cast<NamespaceDecl>(ND))
+      return HandleNamespaceDecl(NSD, isFromTU, isLate);
+    if (ND->getVisibility() != DefaultVisibility)
+      return true;
+
+    const auto *FD = dyn_cast<FunctionDecl>(ND);
+    if (!FD) {
+      if (const auto *FTD = dyn_cast<FunctionTemplateDecl>(ND)) {
+        return WriteNamedDecl(FTD, isLate);
+      } else {
+        ND->dump();
+        llvm_unreachable(
+            "ifso: Expected a function or function template decl.");
+      }
+    }
+
+    return WriteNamedDecl(FD, isLate);
+  }
+
+public:
+  IFSOFunctionsConsumer(CompilerInstance &Instance) : Instance(Instance) {}
+
+  bool HandleTopLevelDecl(DeclGroupRef DG) override {
+    for (Decl *D : DG)
+      HandleNamedDecl(dyn_cast<NamedDecl>(D));
+    return true;
+  }
+
+  void HandleTranslationUnit(ASTContext &context) override {
+    if (UseOnlyToplevelDecls)
+      return;
+    struct Visitor : public RecursiveASTVisitor<Visitor> {
+      bool VisitNamedDecl(NamedDecl *ND) {
+        if (FunctionDecl *FD = dyn_cast<FunctionDecl>(ND)) {
+          if (FD->isLateTemplateParsed())
+            LateParsedDecls.insert(FD);
+          else
+            ParsedDecls.insert(FD);
+        } else if (auto *FTD = dyn_cast<FunctionTemplateDecl>(ND)) {
+          FunctionTemplateDecls.insert(FTD);
+        } else if (auto *NSD = dyn_cast<NamespaceDecl>(ND)) {
+          VisitNamespaceDecl(NSD);
+        } else if (auto *FD = dyn_cast<FunctionDecl>(ND)) {
+          ParsedDecls.insert(FD);
+        } else if (auto *VD = dyn_cast<ValueDecl>(ND)) {
+          ValueDecls.insert(VD);
+        } else {
+          NamedDecls.insert(ND);
+        }
+        return true;
+      }
+
+      bool VisitNamespaceDecl(const NamespaceDecl *NSD) {
+        for (auto *I : NSD->decls())
+          if (auto *ND = dyn_cast<NamedDecl>(I))
+            VisitNamedDecl(ND);
+        return true;
+      }
+
+      std::set<FunctionDecl *> LateParsedDecls;
+      std::set<FunctionDecl *> ParsedDecls;
+      std::set<NamedDecl *> NamedDecls;
+      std::set<ValueDecl *> ValueDecls;
+      std::set<FunctionTemplateDecl *> FunctionTemplateDecls;
+      std::set<FunctionTemplateDecl *> LateFunctionTemplateDecls;
+    } v;
+
+    v.TraverseDecl(context.getTranslationUnitDecl());
+
+    if (Instance.getLangOpts().DelayedTemplateParsing) {
+      clang::Sema &sema = Instance.getSema();
+      for (const FunctionDecl *FD : v.LateParsedDecls) {
+        clang::LateParsedTemplate &LPT =
+            *sema.LateParsedTemplateMap.find(FD)->second;
+        sema.LateTemplateParser(sema.OpaqueParser, LPT);
+        HandleNamedDecl(FD, true, true);
+      }
+    }
+
+    llvm::errs() << "\n\nFunctionDecls:";
+    for (const FunctionDecl *FD : v.ParsedDecls)
+      HandleNamedDecl(FD, true, false);
+
+    llvm::errs() << "\n\nValueDecls:";
+    for (const ValueDecl *VD : v.ValueDecls)
+      HandleNamedDecl(VD, true, false);
+
+#if 0
+    llvm::errs() << "\n\nNamedDecls:";
+    for (const NamedDecl *ND : v.NamedDecls)
+      HandleNamedDecl(ND, true, false);
+#endif
+
+    llvm::errs() << "\n\nFunctionTemplateDecl Specializations:";
+    for (const FunctionTemplateDecl *FTD : v.FunctionTemplateDecls)
+      for (const auto FD : FTD->specializations())
+        HandleNamedDecl(FD, true, false);
+  }
+};
+
+std::unique_ptr<ASTConsumer>
+GenerateIFSOAction::CreateASTConsumer(CompilerInstance &CI, StringRef InFile) {
+  std::string OutputFile = CI.getFrontendOpts().OutputFile;
+  return llvm::make_unique<IFSOFunctionsConsumer>(CI);
 }
 
 std::unique_ptr<ASTConsumer>

@@ -87,6 +87,9 @@ enum ActionKind {
   /// Generate pre-compiled header.
   GeneratePCH,
 
+  /// Generate Interface Library.
+  GenerateIFSO,
+
   /// Only execute frontend initialization.
   InitOnly,
 
