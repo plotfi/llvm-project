@@ -71,7 +71,7 @@ struct ElfIfsoFormat : public IfsoFormat {
     llvm::StringRef Buffer(Yaml);
     llvm::yaml::Input YIn(Buffer);
 
-    int Res = convertYAML(YIn, OS);
+    convertYAML(YIn, OS);
     OS.flush();
   }
 };
