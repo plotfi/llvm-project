@@ -317,6 +317,13 @@ static bool rescheduleCanonically(unsigned &PseudoIdempotentInstCount,
   return Changed;
 }
 
+static bool vregTypesMatch(const MachineRegisterInfo &MRI, unsigned VReg0,
+                           unsigned VReg1) {
+  return (MRI.getRegClassOrNull(VReg0) &&
+          (MRI.getRegClassOrNull(VReg0) == MRI.getRegClassOrNull(VReg1))) ||
+         (MRI.getType(VReg0) == MRI.getType(VReg1));
+}
+
 static bool propagateLocalCopies(MachineBasicBlock *MBB) {
   bool Changed = false;
   MachineRegisterInfo &MRI = MBB->getParent()->getRegInfo();
@@ -341,7 +348,7 @@ static bool propagateLocalCopies(MachineBasicBlock *MBB) {
       continue;
     if (!TargetRegisterInfo::isVirtualRegister(Src))
       continue;
-    if (MRI.getRegClass(Dst) != MRI.getRegClass(Src))
+    if (!vregTypesMatch(MRI, Dst, Src))
       continue;
 
     for (auto UI = MRI.use_begin(Dst); UI != MRI.use_end(); ++UI) {
@@ -500,14 +507,15 @@ public:
     return virtualVRegNumber;
   }
 
-  unsigned createVirtualRegister(const TargetRegisterClass *RC) {
+  unsigned createVirtualRegister(MachineRegisterInfo &MRI, unsigned VReg) {
     std::string S;
     raw_string_ostream OS(S);
     OS << "namedVReg" << (virtualVRegNumber & ~0x80000000);
     OS.flush();
     virtualVRegNumber++;
-
-    return MRI.createVirtualRegister(RC, OS.str());
+    if (auto RC = MRI.getRegClassOrNull(VReg))
+      return MRI.createVirtualRegister(RC, OS.str());
+    return MRI.createGenericVirtualRegister(MRI.getType(VReg), OS.str());
   }
 };
 } // namespace
@@ -557,7 +565,7 @@ GetVRegRenameMap(const std::vector<TypedVReg> &VRegs,
       continue;
     }
 
-    auto Rename = NVC.createVirtualRegister(MRI.getRegClass(Reg));
+    auto Rename = NVC.createVirtualRegister(MRI, Reg);
 
     if (VRegRenameMap.find(Reg) == VRegRenameMap.end()) {
       LLVM_DEBUG(dbgs() << "Mapping vreg ";);
@@ -741,7 +749,7 @@ static bool runOnBasicBlock(MachineBasicBlock *MBB,
     MachineInstr &MI = *MII++;
     Changed = true;
     unsigned vRegToRename = MI.getOperand(0).getReg();
-    auto Rename = NVC.createVirtualRegister(MRI.getRegClass(vRegToRename));
+    auto Rename = NVC.createVirtualRegister(MRI, vRegToRename);
 
     std::vector<MachineOperand *> RenameMOs;
     for (auto &MO : MRI.reg_operands(vRegToRename)) {
