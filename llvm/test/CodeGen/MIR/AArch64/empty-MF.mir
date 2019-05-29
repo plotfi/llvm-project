@@ -1,0 +1,8 @@
+# RUN: llc -mtriple aarch64-- -run-pass mir-canonicalizer %s -o %t \
+# RUN:   -verify-machineinstrs
+
+--- |
+  define void @foo() {
+    ret void
+  }
+...
