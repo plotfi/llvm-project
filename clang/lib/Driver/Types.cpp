@@ -10,7 +10,8 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringSwitch.h"
 #include <cassert>
-#include <string.h>
+#include <cstring>
+#include <vector>
 
 using namespace clang::driver;
 using namespace clang::driver::types;
@@ -20,11 +21,12 @@ struct TypeInfo {
   const char *Flags;
   const char *TempSuffix;
   ID PreprocessedType;
+  const std::vector<phases::ID> Phases;
 };
 
 static const TypeInfo TypeInfos[] = {
-#define TYPE(NAME, ID, PP_TYPE, TEMP_SUFFIX, FLAGS) \
-  { NAME, FLAGS, TEMP_SUFFIX, TY_##PP_TYPE, },
+#define TYPE(NAME, ID, PP_TYPE, TEMP_SUFFIX, FLAGS, ...) \
+  { NAME, FLAGS, TEMP_SUFFIX, TY_##PP_TYPE, { __VA_ARGS__ }, },
 #include "clang/Driver/Types.def"
 #undef TYPE
 };
@@ -264,7 +266,10 @@ types::ID types::lookupTypeForTypeSpecifier(const char *Name) {
 }
 
 // FIXME: Why don't we just put this list in the defs file, eh.
-void types::getCompilationPhases(ID Id, llvm::SmallVectorImpl<phases::ID> &P) {
+// FIXME: The list is now in Types.def but for now this function will verify
+//        the old behavior and a subsequent change will delete most of the body.
+const std::vector<phases::ID> types::getCompilationPhases(ID Id) {
+  std::vector<phases::ID> P;
   if (Id != TY_Object) {
     if (getPreprocessedType(Id) != TY_INVALID) {
       P.push_back(phases::Preprocess);
@@ -288,6 +293,15 @@ void types::getCompilationPhases(ID Id, llvm::SmallVectorImpl<phases::ID> &P) {
   }
   assert(0 < P.size() && "Not enough phases in list");
   assert(P.size() <= phases::MaxNumberOfPhases && "Too many phases in list");
+
+  // TODO: This function is still being used to assert that the phase list in
+  //       Types.def is correct. Everything above this comment will be removed
+  //       in a subsequent NFC commit.
+  auto Phases = getInfo(Id).Phases;
+  assert(Phases.size() == P.size() && "Invalid size.");
+  for (unsigned i = 0; i < Phases.size(); i++)
+    assert(Phases[i] == P[i] && "Invalid Phase");
+  return Phases;
 }
 
 ID types::lookupCXXTypeForCType(ID Id) {
