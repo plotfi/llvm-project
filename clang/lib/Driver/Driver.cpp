@@ -267,47 +267,12 @@ phases::ID Driver::getFinalPhase(const DerivedArgList &DAL,
   Arg *PhaseArg = nullptr;
   phases::ID FinalPhase;
 
-  // -{E,EP,P,M,MM} only run the preprocessor.
-  if (CCCIsCPP() || (PhaseArg = DAL.getLastArg(options::OPT_E)) ||
-      (PhaseArg = DAL.getLastArg(options::OPT__SLASH_EP)) ||
-      (PhaseArg = DAL.getLastArg(options::OPT_M, options::OPT_MM)) ||
-      (PhaseArg = DAL.getLastArg(options::OPT__SLASH_P))) {
+  if (CCCIsCPP()) {
     FinalPhase = phases::Preprocess;
-
-    // --precompile only runs up to precompilation.
-  } else if ((PhaseArg = DAL.getLastArg(options::OPT__precompile))) {
-    FinalPhase = phases::Precompile;
-
-    // -{fsyntax-only,-analyze,emit-ast} only run up to the compiler.
-  } else if ((PhaseArg = DAL.getLastArg(options::OPT_fsyntax_only)) ||
-             (PhaseArg = DAL.getLastArg(options::OPT_print_supported_cpus)) ||
-             (PhaseArg = DAL.getLastArg(options::OPT_module_file_info)) ||
-             (PhaseArg = DAL.getLastArg(options::OPT_verify_pch)) ||
-             (PhaseArg = DAL.getLastArg(options::OPT_rewrite_objc)) ||
-             (PhaseArg = DAL.getLastArg(options::OPT_rewrite_legacy_objc)) ||
-             (PhaseArg = DAL.getLastArg(options::OPT__migrate)) ||
-             (PhaseArg = DAL.getLastArg(options::OPT_emit_iterface_stubs)) ||
-             (PhaseArg = DAL.getLastArg(options::OPT__analyze,
-                                        options::OPT__analyze_auto)) ||
-             (PhaseArg = DAL.getLastArg(options::OPT_emit_ast))) {
-    FinalPhase = phases::Compile;
-
-    // -S only runs up to the backend.
-  } else if ((PhaseArg = DAL.getLastArg(options::OPT_S))) {
-    FinalPhase = phases::Backend;
-
-    // -c compilation only runs up to the assembler.
-  } else if ((PhaseArg = DAL.getLastArg(options::OPT_c))) {
-    FinalPhase = phases::Assemble;
-
-    // Otherwise do everything.
-  } else
-    FinalPhase = phases::Link;
+  }
 
   if (FinalPhaseArg)
     *FinalPhaseArg = PhaseArg;
-
-  return FinalPhase;
 }
 
 static Arg *MakeInputArg(DerivedArgList &Args, OptTable &Opts,
@@ -3160,14 +3125,6 @@ void Driver::BuildActions(Compilation &C, DerivedArgList &Args,
   Arg *FinalPhaseArg;
   phases::ID FinalPhase = getFinalPhase(Args, &FinalPhaseArg);
 
-  if (FinalPhase == phases::Link) {
-    if (Args.hasArg(options::OPT_emit_llvm))
-      Diag(clang::diag::err_drv_emit_llvm_link);
-    if (IsCLMode() && LTOMode != LTOK_None &&
-        !Args.getLastArgValue(options::OPT_fuse_ld_EQ).equals_lower("lld"))
-      Diag(clang::diag::err_drv_lto_without_lld);
-  }
-
   // Reject -Z* at the top level, these options should never have been exposed
   // by gcc.
   if (Arg *A = Args.getLastArg(options::OPT_Z_Joined))
@@ -3220,6 +3177,15 @@ void Driver::BuildActions(Compilation &C, DerivedArgList &Args,
     Args.eraseArg(options::OPT__SLASH_Yc);
     YcArg = nullptr;
   }
+  
+  if (FinalPhase == phases::Link) {
+    if (Args.hasArg(options::OPT_emit_llvm))
+      Diag(clang::diag::err_drv_emit_llvm_link);
+    if (IsCLMode() && LTOMode != LTOK_None &&
+        !Args.getLastArgValue(options::OPT_fuse_ld_EQ).equals_lower("lld"))
+      Diag(clang::diag::err_drv_lto_without_lld);
+  }
+
   if (FinalPhase == phases::Preprocess || Args.hasArg(options::OPT__SLASH_Y_)) {
     // If only preprocessing or /Y- is used, all pch handling is disabled.
     // Rather than check for it everywhere, just remove clang-cl pch-related
@@ -3243,7 +3209,7 @@ void Driver::BuildActions(Compilation &C, DerivedArgList &Args,
     const Arg *InputArg = I.second;
 
     llvm::SmallVector<phases::ID, phases::MaxNumberOfPhases> PL;
-    types::getCompilationPhases(InputType, PL);
+    types::getCompilationPhases(Args, InputType, *this, PL);
     LastPLSize = PL.size();
 
     // If the first step comes after the final phase we are doing as part of
@@ -3286,7 +3252,7 @@ void Driver::BuildActions(Compilation &C, DerivedArgList &Args,
       if (FinalPhase >= phases::Compile) {
         const types::ID HeaderType = lookupHeaderTypeForSourceType(InputType);
         llvm::SmallVector<phases::ID, phases::MaxNumberOfPhases> PCHPL;
-        types::getCompilationPhases(HeaderType, PCHPL);
+        types::getCompilationPhases(Args, HeaderType, *this, PCHPL);
         // Build the pipeline for the pch file.
         Action *ClangClPch =
             C.MakeAction<InputAction>(*InputArg, HeaderType);

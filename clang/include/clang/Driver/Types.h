@@ -9,8 +9,10 @@
 #ifndef LLVM_CLANG_DRIVER_TYPES_H
 #define LLVM_CLANG_DRIVER_TYPES_H
 
+#include "clang/Driver/Driver.h"
 #include "clang/Driver/Phases.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Option/ArgList.h"
 
 namespace llvm {
 class StringRef;
@@ -97,9 +99,9 @@ namespace types {
 
   /// getCompilationPhases - Get the list of compilation phases ('Phases') to be
   /// done for type 'Id'.
-  void getCompilationPhases(
-    ID Id,
-    llvm::SmallVectorImpl<phases::ID> &Phases);
+  void getCompilationPhases(const llvm::opt::DerivedArgList &DAL, ID Id,
+                            clang::driver::Driver &Driver,
+                            llvm::SmallVectorImpl<phases::ID> &Phases);
 
   /// lookupCXXTypeForCType - Lookup CXX input type that corresponds to given
   /// C type (used for clang++ emulation of g++ behaviour)

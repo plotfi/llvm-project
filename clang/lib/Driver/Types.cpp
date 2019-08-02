@@ -6,10 +6,13 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "clang/Driver/Options.h"
+#include "clang/Driver/DriverDiagnostic.h"
 #include "clang/Driver/Types.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Option/Arg.h"
 #include <cassert>
 #include <cstring>
 
@@ -287,10 +290,62 @@ types::ID types::lookupTypeForTypeSpecifier(const char *Name) {
 // FIXME: Why don't we just put this list in the defs file, eh.
 // FIXME: The list is now in Types.def but for now this function will verify
 //        the old behavior and a subsequent change will delete most of the body.
-void types::getCompilationPhases(ID Id, llvm::SmallVectorImpl<phases::ID> &P) {
+void types::getCompilationPhases(const llvm::opt::DerivedArgList &DAL, ID Id,
+                                 clang::driver::Driver &Driver,
+                                 llvm::SmallVectorImpl<phases::ID> &P) {
   P = getInfo(Id).Phases;
   assert(0 < P.size() && "Not enough phases in list");
   assert(P.size() <= phases::MaxNumberOfPhases && "Too many phases in list");
+
+  // Filter to compiler mode. When the compiler is run as a preprocessor then
+  // compilation is not an option.
+  // -S runs the compiler in Assembly listing mode.
+  if ( // CCCIsCPP() ||
+      DAL.getLastArg(options::OPT__SLASH_EP, options::OPT__SLASH_P) ||
+      DAL.getLastArg(options::OPT_E) ||
+      DAL.getLastArg(options::OPT_M, options::OPT_MM)) {
+    P.erase(llvm::remove_if(
+        P, [](const phases::ID &Id) { return Id <= phases::Preprocess; }));
+    return;
+  // -{fsyntax-only,-analyze,emit-ast} only run up to the compiler.
+  } else if (DAL.getLastArg(options::OPT_fsyntax_only) ||
+             DAL.getLastArg(options::OPT_print_supported_cpus) ||
+             DAL.getLastArg(options::OPT_module_file_info) ||
+             DAL.getLastArg(options::OPT_verify_pch) ||
+             DAL.getLastArg(options::OPT_rewrite_objc) ||
+             DAL.getLastArg(options::OPT_rewrite_legacy_objc) ||
+             DAL.getLastArg(options::OPT__migrate) ||
+             DAL.getLastArg(options::OPT_emit_iterface_stubs) ||
+             DAL.getLastArg(options::OPT__analyze,
+                            options::OPT__analyze_auto) ||
+             DAL.getLastArg(options::OPT_emit_ast)) {
+    P.erase(llvm::remove_if(
+        P, [](const phases::ID &Id) { return Id <= phases::Compile; }));
+    return;
+  } else if (DAL.getLastArg(options::OPT_S) ||
+             DAL.getLastArg(options::OPT_emit_llvm)) {
+    P.erase(llvm::remove_if(
+        P, [](const phases::ID &Id) { return Id <= phases::Backend; }));
+    return;
+  } else if (DAL.getLastArg(options::OPT_c)) {
+    P.erase(llvm::remove_if(
+        P, [](const phases::ID &Id) { return Id <= phases::Assemble; }));
+    return;
+  }
+
+  // --precompile only runs up to precompilation.
+  // This is a clang extension and is not compatible with GCC.
+  if (DAL.getLastArg(options::OPT__precompile)) {
+    P.erase(llvm::remove_if(
+        P, [](const phases::ID &Id) { return Id <= phases::Precompile; }));
+    return;
+  }
+
+  if (DAL.hasArg(options::OPT_emit_llvm))
+    Diag(clang::diag::err_drv_emit_llvm_link);
+  if (IsCLMode() && LTOMode != LTOK_None &&
+      !DAL.getLastArgValue(options::OPT_fuse_ld_EQ).equals_lower("lld"))
+    Diag(clang::diag::err_drv_lto_without_lld);
 }
 
 ID types::lookupCXXTypeForCType(ID Id) {
