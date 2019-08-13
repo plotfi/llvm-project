@@ -3320,6 +3320,7 @@ void Driver::BuildActions(Compilation &C, DerivedArgList &Args,
   // Construct the actions to perform.
   HeaderModulePrecompileJobAction *HeaderModuleAction = nullptr;
   ActionList LinkerInputs;
+  ActionList MergerInputs;
 
   for (auto &I : Inputs) {
     types::ID InputType = I.first;
@@ -3331,7 +3332,10 @@ void Driver::BuildActions(Compilation &C, DerivedArgList &Args,
       continue;
 
     llvm::SmallVector<phases::ID, phases::MaxNumberOfPhases> FullPL;
-    types::getCompilationPhases(InputType, FullPL);
+    types::getCompilationPhases(
+        (Args.getLastArg(options::OPT_emit_iterface_stubs) ? types::TY_IFS
+                                                           : InputType),
+        FullPL);
 
     // Build the pipeline for this file.
     Action *Current = C.MakeAction<InputAction>(*InputArg, InputType);
@@ -3353,6 +3357,14 @@ void Driver::BuildActions(Compilation &C, DerivedArgList &Args,
       if (Phase == phases::Link) {
         assert(Phase == PL.back() && "linking must be final compilation step.");
         LinkerInputs.push_back(Current);
+        Current = nullptr;
+        break;
+      }
+
+      // Queue linker inputs.
+      if (Phase == phases::IfsMerge) {
+        assert(Phase == PL.back() && "merging must be final compilation step.");
+        MergerInputs.push_back(Current);
         Current = nullptr;
         break;
       }
@@ -3406,6 +3418,11 @@ void Driver::BuildActions(Compilation &C, DerivedArgList &Args,
     Actions.push_back(LA);
   }
 
+  // Add an interface stubs merge action if necessary.
+  if (!MergerInputs.empty())
+    Actions.push_back(
+        C.MakeAction<IfsMergeJobAction>(MergerInputs, types::TY_Image));
+
   // If --print-supported-cpus, -mcpu=? or -mtune=? is specified, build a custom
   // Compile phase that prints out supported cpu models and quits.
   if (Arg *A = Args.getLastArg(options::OPT_print_supported_cpus)) {
@@ -3441,6 +3458,7 @@ Action *Driver::ConstructPhaseAction(
   // Build the appropriate action.
   switch (Phase) {
   case phases::Link:
+  case phases::IfsMerge:
     llvm_unreachable("link action invalid here.");
   case phases::Preprocess: {
     types::ID OutputTy;
