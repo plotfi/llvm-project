@@ -1628,12 +1628,28 @@ public:
         "Target didn't implement TargetInstrInfo::getOutliningCandidateInfo!");
   }
 
+#ifdef __FACEBOOK__
+  virtual outliner::OutlinedFunction getOutliningCandidateInfo(
+      std::vector<outliner::Candidate> &RepeatedSequenceLocs,
+      bool OnlyTailCalls) const {
+    return getOutliningCandidateInfo(RepeatedSequenceLocs);
+  }
+#endif
+
   /// Returns how or if \p MI should be outlined.
   virtual outliner::InstrType
   getOutliningType(MachineBasicBlock::iterator &MIT, unsigned Flags) const {
     llvm_unreachable(
         "Target didn't implement TargetInstrInfo::getOutliningType!");
   }
+
+#ifdef __FACEBOOK__
+  virtual outliner::InstrType getOutliningType(MachineBasicBlock::iterator &MIT,
+                                               unsigned Flags,
+                                               bool OnlyTailCalls) const {
+    return getOutliningType(MIT, Flags);
+  }
+#endif
 
   /// Optional target hook that returns true if \p MBB is safe to outline from,
   /// and returns any target-specific information in \p Flags.

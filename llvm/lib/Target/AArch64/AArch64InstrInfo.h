@@ -232,10 +232,22 @@ public:
 
   bool isFunctionSafeToOutlineFrom(MachineFunction &MF,
                                    bool OutlineFromLinkOnceODRs) const override;
+#ifdef __FACEBOOK__
+  outliner::OutlinedFunction getOutliningCandidateInfo(
+      std::vector<outliner::Candidate> &RepeatedSequenceLocs,
+      bool OnlyTailCalls) const override;
+#else
   outliner::OutlinedFunction getOutliningCandidateInfo(
       std::vector<outliner::Candidate> &RepeatedSequenceLocs) const override;
+#endif
+#ifdef __FACEBOOK__
+  outliner::InstrType getOutliningType(MachineBasicBlock::iterator &MIT,
+                                       unsigned Flags,
+                                       bool OnlyTailCalls) const override;
+#else
   outliner::InstrType
   getOutliningType(MachineBasicBlock::iterator &MIT, unsigned Flags) const override;
+#endif
   bool isMBBSafeToOutlineFrom(MachineBasicBlock &MBB,
                               unsigned &Flags) const override;
   void buildOutlinedFrame(MachineBasicBlock &MBB, MachineFunction &MF,

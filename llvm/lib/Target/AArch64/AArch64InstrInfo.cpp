@@ -4921,9 +4921,15 @@ AArch64InstrInfo::findRegisterToSaveLRTo(const outliner::Candidate &C) const {
   return 0u;
 }
 
+#ifdef __FACEBOOK__
+outliner::OutlinedFunction AArch64InstrInfo::getOutliningCandidateInfo(
+    std::vector<outliner::Candidate> &RepeatedSequenceLocs,
+    bool OnlyTailCalls) const {
+#else
 outliner::OutlinedFunction
 AArch64InstrInfo::getOutliningCandidateInfo(
     std::vector<outliner::Candidate> &RepeatedSequenceLocs) const {
+#endif
   outliner::Candidate &FirstCand = RepeatedSequenceLocs[0];
   unsigned SequenceSize =
       std::accumulate(FirstCand.front(), std::next(FirstCand.back()), 0,
@@ -5156,6 +5162,13 @@ AArch64InstrInfo::getOutliningCandidateInfo(
     }
   }
 
+#ifdef __FACEBOOK__
+  if (OnlyTailCalls && FrameID != MachineOutlinerTailCall) {
+    RepeatedSequenceLocs.clear();
+    return outliner::OutlinedFunction();
+  }
+#endif
+
   return outliner::OutlinedFunction(RepeatedSequenceLocs, SequenceSize,
                                     NumBytesToCreateFrame, FrameID);
 }
@@ -5252,9 +5265,15 @@ bool AArch64InstrInfo::isMBBSafeToOutlineFrom(MachineBasicBlock &MBB,
   return true;
 }
 
+#ifdef __FACEBOOK__
+outliner::InstrType
+AArch64InstrInfo::getOutliningType(MachineBasicBlock::iterator &MIT,
+                                   unsigned Flags, bool OnlyTailCalls) const {
+#else
 outliner::InstrType
 AArch64InstrInfo::getOutliningType(MachineBasicBlock::iterator &MIT,
                                    unsigned Flags) const {
+#endif
   MachineInstr &MI = *MIT;
   MachineBasicBlock *MBB = MI.getParent();
   MachineFunction *MF = MBB->getParent();
@@ -5290,6 +5309,10 @@ AArch64InstrInfo::getOutliningType(MachineBasicBlock::iterator &MIT,
         MOP.isTargetIndex())
       return outliner::InstrType::Illegal;
 
+#ifdef __FACEBOOK__
+    if (OnlyTailCalls)
+      continue;
+#endif
     // If it uses LR or W30 explicitly, then don't touch it.
     if (MOP.isReg() && !MOP.isImplicit() &&
         (MOP.getReg() == AArch64::LR || MOP.getReg() == AArch64::W30))
@@ -5366,6 +5389,11 @@ AArch64InstrInfo::getOutliningType(MachineBasicBlock::iterator &MIT,
   // Don't outline positions.
   if (MI.isPosition())
     return outliner::InstrType::Illegal;
+
+#ifdef __FACEBOOK__
+  if (OnlyTailCalls)
+    return outliner::InstrType::Legal;
+#endif
 
   // Don't touch the link register or W30.
   if (MI.readsRegister(AArch64::W30, &getRegisterInfo()) ||

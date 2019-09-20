@@ -99,6 +99,13 @@ static cl::opt<bool> EnableLinkOnceODROutlining(
     cl::desc("Enable the machine outliner on linkonceodr functions"),
     cl::init(false));
 
+#ifdef __FACEBOOK__
+static cl::opt<bool> AggressiveTailCallOutlining(
+    "aggressive-tail-call-outlining", cl::init(false), cl::Hidden,
+    cl::desc("Perform an extra run of the machine outliner for tail calls "
+             "(default = off)"));
+#endif
+
 namespace {
 
 /// Represents an undefined index in the suffix tree.
@@ -638,6 +645,10 @@ struct InstructionMapper {
   // than one illegal number per range.
   bool AddedIllegalLastTime = false;
 
+#ifdef __FACEBOOK__
+  bool OnlyTailCalls;
+#endif
+
   /// Maps \p *It to a legal integer.
   ///
   /// Updates \p CanOutlineWithPrevInstr, \p HaveLegalRange, \p InstrListForMBB,
@@ -769,7 +780,11 @@ struct InstructionMapper {
 
     for (MachineBasicBlock::iterator Et = MBB.end(); It != Et; It++) {
       // Keep track of where this instruction is in the module.
+#ifdef __FACEBOOK__
+      switch (TII.getOutliningType(It, Flags, OnlyTailCalls)) {
+#else
       switch (TII.getOutliningType(It, Flags)) {
+#endif
       case InstrType::Illegal:
         mapToIllegalUnsigned(It, CanOutlineWithPrevInstr,
                              UnsignedVecForMBB, InstrListForMBB);
@@ -846,6 +861,10 @@ struct MachineOutliner : public ModulePass {
   /// Set when the pass is constructed in TargetPassConfig.
   bool RunOnAllFunctions = true;
 
+#ifdef __FACEBOOK__
+  bool OnlyTailCalls;
+#endif
+
   StringRef getPassName() const override { return "Machine Outliner"; }
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
@@ -901,6 +920,10 @@ struct MachineOutliner : public ModulePass {
   /// Construct a suffix tree on the instructions in \p M and outline repeated
   /// strings from that tree.
   bool runOnModule(Module &M) override;
+
+#ifdef __FACEBOOK__
+  bool internalRunOnModule(Module &M);
+#endif
 
   /// Return a DISubprogram for OF if one exists, and null otherwise. Helper
   /// function for remark emission.
@@ -1072,8 +1095,13 @@ MachineOutliner::findCandidates(InstructionMapper &Mapper,
     const TargetInstrInfo *TII =
         CandidatesForRepeatedSeq[0].getMF()->getSubtarget().getInstrInfo();
 
+#ifdef __FACEBOOK__
+    OutlinedFunction OF =
+        TII->getOutliningCandidateInfo(CandidatesForRepeatedSeq, OnlyTailCalls);
+#else
     OutlinedFunction OF =
         TII->getOutliningCandidateInfo(CandidatesForRepeatedSeq);
+#endif
 
     // If we deleted too many candidates, then there's nothing worth outlining.
     // FIXME: This should take target-specified instruction sizes into account.
@@ -1101,7 +1129,14 @@ MachineOutliner::createOutlinedFunction(Module &M, OutlinedFunction &OF,
   std::ostringstream NameStream;
   // FIXME: We should have a better naming scheme. This should be stable,
   // regardless of changes to the outliner's cost model/traversal order.
+#ifdef __FACEBOOK__
+  NameStream << "OUTLINED_FUNCTION_";
+  if (OnlyTailCalls)
+    NameStream << "AGGRESSIVE_TAIL_CALL_";
+  NameStream << Name;
+#else
   NameStream << "OUTLINED_FUNCTION_" << Name;
+#endif
 
   // Create the function using an IR-level function.
   LLVMContext &C = M.getContext();
@@ -1425,6 +1460,22 @@ bool MachineOutliner::runOnModule(Module &M) {
   if (M.empty())
     return false;
 
+#ifdef __FACEBOOK__
+  bool OutlinedSomething = false;
+  if (AggressiveTailCallOutlining) {
+    OnlyTailCalls = true;
+    OutlinedSomething = internalRunOnModule(M);
+  }
+
+  OnlyTailCalls = false;
+  if (internalRunOnModule(M))
+    OutlinedSomething = true;
+
+  return OutlinedSomething;
+}
+
+bool MachineOutliner::internalRunOnModule(Module &M) {
+#endif
   MachineModuleInfo &MMI = getAnalysis<MachineModuleInfo>();
 
   // If the user passed -enable-machine-outliner=always or
@@ -1445,6 +1496,9 @@ bool MachineOutliner::runOnModule(Module &M) {
   // it here.
   OutlineFromLinkOnceODRs = EnableLinkOnceODROutlining;
   InstructionMapper Mapper;
+#ifdef __FACEBOOK__
+  Mapper.OnlyTailCalls = OnlyTailCalls;
+#endif
 
   // Prepare instruction mappings for the suffix tree.
   populateMapper(Mapper, M, MMI);
