@@ -104,6 +104,15 @@ static cl::opt<bool> AggressiveTailCallOutlining(
     "aggressive-tail-call-outlining", cl::init(false), cl::Hidden,
     cl::desc("Perform an extra run of the machine outliner for tail calls "
              "(default = off)"));
+
+static cl::opt<int> OutliningIteration(
+    "outlining-iteration", cl::init(1), cl::Hidden,
+    cl::desc("The number of outlining iterations performed"));
+
+static cl::opt<bool> UseLinkOnceODRLinkageOutlining(
+    "use-linkonceodr-linkage-outlining", cl::init(false), cl::Hidden,
+    cl::desc("Use LinkeOnceODR linkage to deduplicate the identical outlined "
+             "code (default = off)"));
 #endif
 
 namespace {
@@ -863,6 +872,8 @@ struct MachineOutliner : public ModulePass {
 
 #ifdef __FACEBOOK__
   bool OnlyTailCalls;
+  /// Number to append to the current outlined function.
+  unsigned OutlinedFunctionNum = 0;
 #endif
 
   StringRef getPassName() const override { return "Machine Outliner"; }
@@ -1236,8 +1247,10 @@ bool MachineOutliner::outline(Module &M,
 
   bool OutlinedSomething = false;
 
+#ifndef __FACEBOOK__
   // Number to append to the current outlined function.
   unsigned OutlinedFunctionNum = 0;
+#endif // !__FACEBOOK__
 
   // Sort by benefit. The most beneficial functions should be outlined first.
   std::stable_sort(
@@ -1468,8 +1481,20 @@ bool MachineOutliner::runOnModule(Module &M) {
   }
 
   OnlyTailCalls = false;
-  if (internalRunOnModule(M))
+  LLVM_DEBUG({
+    if (OutliningIterations == 0)
+      dbgs() << "No outlining is performed\n";
+  });
+  for (unsigned I = 0; I < OutliningIterations; ++I) {
+    if (!internalRunOnModule(M)) {
+      LLVM_DEBUG({
+        dbgs() << "Did not outline on iteration " << I + 1 << " out of "
+               << OutliningIterations << "\n";
+      });
+      break;
+    }
     OutlinedSomething = true;
+  }
 
   return OutlinedSomething;
 }

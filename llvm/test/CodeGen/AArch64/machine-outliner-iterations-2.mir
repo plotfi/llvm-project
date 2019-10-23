@@ -1,0 +1,763 @@
+# RUN: llc -mtriple=aarch64-linux-gnu -run-pass=machine-outliner -outlining-iterations=1\
+# RUN: -verify-machineinstrs %s -o - | FileCheck --check-prefix=ITER1 %s
+# RUN: llc -mtriple=aarch64-linux-gnu -run-pass=machine-outliner -outlining-iterations=2\
+# RUN: -verify-machineinstrs %s -o - | FileCheck --check-prefix=ITER2 %s
+--- |
+  %"struct.NArchive::NZip::CExtraSubBlock" = type { i16, %class.CBuffer }
+  %class.CBuffer = type { i32 (...)**, i64, i8* }
+  %struct._FILETIME = type { i32, i32 }
+  %"class.NArchive::NZip::CLocalItem" = type { %"struct.NArchive::NZip::CVersion", i16, i16, i32, i32, i64, i64, %class.CStringBase, %"struct.NArchive::NZip::CExtraBlock" }
+  %"struct.NArchive::NZip::CVersion" = type { i8, i8 }
+  %class.CStringBase = type { i8*, i32, i32 }
+  %"struct.NArchive::NZip::CExtraBlock" = type { %class.CObjectVector }
+  %class.CObjectVector = type { %class.CRecordVector }
+  %class.CRecordVector = type { %class.CBaseRecordVector }
+  %class.CBaseRecordVector = type { i32 (...)**, i32, i32, i8*, i64 }
+  %"class.NArchive::NZip::CItem" = type <{ %"class.NArchive::NZip::CLocalItem", %"struct.NArchive::NZip::CVersion", i16, i32, i64, %struct._FILETIME, %struct._FILETIME, %struct._FILETIME, %"struct.NArchive::NZip::CExtraBlock", %class.CBuffer, i8, i8, i8, [5 x i8] }>
+  
+  define zeroext i1 @_ZNK8NArchive4NZip14CExtraSubBlock15ExtractNtfsTimeEiR9_FILETIME(%"struct.NArchive::NZip::CExtraSubBlock"* nocapture readonly %this, i32 %index, %struct._FILETIME* nocapture dereferenceable(8) %ft) local_unnamed_addr #0 align 2 {
+  entry:
+    %0 = bitcast %struct._FILETIME* %ft to <2 x i32>*
+    store <2 x i32> zeroinitializer, <2 x i32>* %0, align 4, !tbaa !3
+    %_capacity.i = getelementptr inbounds %"struct.NArchive::NZip::CExtraSubBlock", %"struct.NArchive::NZip::CExtraSubBlock"* %this, i64 0, i32 1, i32 1
+    %1 = load i64, i64* %_capacity.i, align 8, !tbaa !7
+    %conv = trunc i64 %1 to i32
+    %ID2 = bitcast %"struct.NArchive::NZip::CExtraSubBlock"* %this to i16*
+    %2 = load i16, i16* %ID2, align 8, !tbaa !11
+    %cmp = icmp ne i16 %2, 10
+    %cmp3 = icmp ult i32 %conv, 32
+    %or.cond = or i1 %cmp, %cmp3
+    br i1 %or.cond, label %cleanup71, label %if.end
+  
+  if.end:                                           ; preds = %entry
+    %_items.i = getelementptr inbounds %"struct.NArchive::NZip::CExtraSubBlock", %"struct.NArchive::NZip::CExtraSubBlock"* %this, i64 0, i32 1, i32 2
+    %3 = load i8*, i8** %_items.i, align 8, !tbaa !14
+    %add.ptr = getelementptr inbounds i8, i8* %3, i64 4
+    %sub = add i32 %conv, -4
+    br label %while.cond
+  
+  while.cond:                                       ; preds = %cleanup, %if.end
+    %size.0 = phi i32 [ %sub, %if.end ], [ %sub68, %cleanup ]
+    %p.0 = phi i8* [ %add.ptr, %if.end ], [ %add.ptr67, %cleanup ]
+    %cmp6 = icmp ugt i32 %size.0, 4
+    br i1 %cmp6, label %while.body, label %cleanup71
+  
+  while.body:                                       ; preds = %while.cond
+    %4 = load i8, i8* %p.0, align 1, !tbaa !15
+    %conv7 = zext i8 %4 to i32
+    %arrayidx8 = getelementptr inbounds i8, i8* %p.0, i64 1
+    %5 = load i8, i8* %arrayidx8, align 1, !tbaa !15
+    %conv10 = zext i8 %5 to i32
+    %shl = shl nuw nsw i32 %conv10, 8
+    %or = or i32 %shl, %conv7
+    %add.ptr12 = getelementptr inbounds i8, i8* %p.0, i64 2
+    %6 = load i8, i8* %add.ptr12, align 1, !tbaa !15
+    %conv14 = zext i8 %6 to i32
+    %arrayidx16 = getelementptr inbounds i8, i8* %p.0, i64 3
+    %7 = load i8, i8* %arrayidx16, align 1, !tbaa !15
+    %conv18 = zext i8 %7 to i32
+    %shl19 = shl nuw nsw i32 %conv18, 8
+    %or20 = or i32 %shl19, %conv14
+    %add.ptr21 = getelementptr inbounds i8, i8* %p.0, i64 4
+    %sub22 = add i32 %size.0, -4
+    %cmp23 = icmp ugt i32 %or20, %sub22
+    %spec.select = select i1 %cmp23, i32 %sub22, i32 %or20
+    %cmp27 = icmp eq i32 %or, 1
+    %cmp28 = icmp ugt i32 %spec.select, 23
+    %or.cond72 = and i1 %cmp27, %cmp28
+    br i1 %or.cond72, label %cleanup.thread, label %cleanup
+  
+  cleanup.thread:                                   ; preds = %while.body
+    %8 = bitcast %struct._FILETIME* %ft to i32*
+    %idx.ext = sext i32 %index to i64
+    %mul = shl nsw i64 %idx.ext, 3
+    %add.ptr30 = getelementptr inbounds i8, i8* %add.ptr21, i64 %mul
+    %9 = load i8, i8* %add.ptr30, align 1, !tbaa !15
+    %conv32 = zext i8 %9 to i32
+    %arrayidx33 = getelementptr inbounds i8, i8* %add.ptr30, i64 1
+    %10 = load i8, i8* %arrayidx33, align 1, !tbaa !15
+    %conv34 = zext i8 %10 to i32
+    %shl35 = shl nuw nsw i32 %conv34, 8
+    %or36 = or i32 %shl35, %conv32
+    %arrayidx37 = getelementptr inbounds i8, i8* %add.ptr30, i64 2
+    %11 = load i8, i8* %arrayidx37, align 1, !tbaa !15
+    %conv38 = zext i8 %11 to i32
+    %shl39 = shl nuw nsw i32 %conv38, 16
+    %or40 = or i32 %or36, %shl39
+    %arrayidx41 = getelementptr inbounds i8, i8* %add.ptr30, i64 3
+    %12 = load i8, i8* %arrayidx41, align 1, !tbaa !15
+    %conv42 = zext i8 %12 to i32
+    %shl43 = shl nuw i32 %conv42, 24
+    %or44 = or i32 %or40, %shl43
+    store i32 %or44, i32* %8, align 4, !tbaa !16
+    %add.ptr46 = getelementptr inbounds i8, i8* %add.ptr30, i64 4
+    %13 = load i8, i8* %add.ptr46, align 1, !tbaa !15
+    %conv48 = zext i8 %13 to i32
+    %arrayidx50 = getelementptr inbounds i8, i8* %add.ptr46, i64 1
+    %14 = load i8, i8* %arrayidx50, align 1, !tbaa !15
+    %conv51 = zext i8 %14 to i32
+    %shl52 = shl nuw nsw i32 %conv51, 8
+    %or53 = or i32 %shl52, %conv48
+    %arrayidx55 = getelementptr inbounds i8, i8* %add.ptr46, i64 2
+    %15 = load i8, i8* %arrayidx55, align 1, !tbaa !15
+    %conv56 = zext i8 %15 to i32
+    %shl57 = shl nuw nsw i32 %conv56, 16
+    %or58 = or i32 %or53, %shl57
+    %arrayidx60 = getelementptr inbounds i8, i8* %add.ptr46, i64 3
+    %16 = load i8, i8* %arrayidx60, align 1, !tbaa !15
+    %conv61 = zext i8 %16 to i32
+    %shl62 = shl nuw i32 %conv61, 24
+    %or63 = or i32 %or58, %shl62
+    %17 = bitcast %struct._FILETIME* %ft to i8*
+    %sunkaddr = getelementptr i8, i8* %17, i64 4
+    %18 = bitcast i8* %sunkaddr to i32*
+    store i32 %or63, i32* %18, align 4, !tbaa !18
+    br label %cleanup71
+  
+  cleanup:                                          ; preds = %while.body
+    %idx.ext66 = zext i32 %spec.select to i64
+    %add.ptr67 = getelementptr inbounds i8, i8* %add.ptr21, i64 %idx.ext66
+    %sub68 = sub i32 %sub22, %spec.select
+    br label %while.cond
+  
+  cleanup71:                                        ; preds = %while.cond, %cleanup.thread, %entry
+    %retval.3 = phi i1 [ false, %entry ], [ true, %cleanup.thread ], [ false, %while.cond ]
+    ret i1 %retval.3
+  }
+  
+  define zeroext i1 @_ZNK8NArchive4NZip14CExtraSubBlock15ExtractUnixTimeEiRj(%"struct.NArchive::NZip::CExtraSubBlock"* nocapture readonly %this, i32 %index, i32* nocapture dereferenceable(4) %res) local_unnamed_addr #0 align 2 {
+  entry:
+    store i32 0, i32* %res, align 4, !tbaa !3
+    %_capacity.i = getelementptr inbounds %"struct.NArchive::NZip::CExtraSubBlock", %"struct.NArchive::NZip::CExtraSubBlock"* %this, i64 0, i32 1, i32 1
+    %0 = load i64, i64* %_capacity.i, align 8, !tbaa !7
+    %conv = trunc i64 %0 to i32
+    %ID1 = bitcast %"struct.NArchive::NZip::CExtraSubBlock"* %this to i16*
+    %1 = load i16, i16* %ID1, align 8, !tbaa !11
+    %cmp = icmp ne i16 %1, 21589
+    %cmp3 = icmp ult i32 %conv, 5
+    %or.cond = or i1 %cmp, %cmp3
+    br i1 %or.cond, label %cleanup31, label %if.end
+  
+  if.end:                                           ; preds = %entry
+    %_items.i = getelementptr inbounds %"struct.NArchive::NZip::CExtraSubBlock", %"struct.NArchive::NZip::CExtraSubBlock"* %this, i64 0, i32 1, i32 2
+    %2 = load i8*, i8** %_items.i, align 8, !tbaa !14
+    %incdec.ptr = getelementptr inbounds i8, i8* %2, i64 1
+    %3 = load i8, i8* %2, align 1, !tbaa !15
+    %dec = add i32 %conv, -1
+    %conv7 = zext i8 %3 to i32
+    br label %for.cond
+  
+  for.cond:                                         ; preds = %for.inc, %if.end
+    %size.0 = phi i32 [ %dec, %if.end ], [ %size.1, %for.inc ]
+    %p.0 = phi i8* [ %incdec.ptr, %if.end ], [ %p.1, %for.inc ]
+    %i.0 = phi i32 [ 0, %if.end ], [ %inc, %for.inc ]
+    %cmp6 = icmp ult i32 %i.0, 3
+    br i1 %cmp6, label %for.body, label %cleanup31
+  
+  for.body:                                         ; preds = %for.cond
+    %shl = shl i32 1, %i.0
+    %and = and i32 %shl, %conv7
+    %cmp8 = icmp eq i32 %and, 0
+    br i1 %cmp8, label %for.inc, label %if.then9
+  
+  if.then9:                                         ; preds = %for.body
+    %cmp10 = icmp ult i32 %size.0, 4
+    br i1 %cmp10, label %cleanup31, label %if.end12
+  
+  if.end12:                                         ; preds = %if.then9
+    %cmp13 = icmp eq i32 %index, %i.0
+    br i1 %cmp13, label %if.then14, label %if.end27
+  
+  if.then14:                                        ; preds = %if.end12
+    %4 = load i8, i8* %p.0, align 1, !tbaa !15
+    %conv15 = zext i8 %4 to i32
+    %arrayidx16 = getelementptr inbounds i8, i8* %p.0, i64 1
+    %5 = load i8, i8* %arrayidx16, align 1, !tbaa !15
+    %conv17 = zext i8 %5 to i32
+    %shl18 = shl nuw nsw i32 %conv17, 8
+    %or = or i32 %shl18, %conv15
+    %arrayidx19 = getelementptr inbounds i8, i8* %p.0, i64 2
+    %6 = load i8, i8* %arrayidx19, align 1, !tbaa !15
+    %conv20 = zext i8 %6 to i32
+    %shl21 = shl nuw nsw i32 %conv20, 16
+    %or22 = or i32 %or, %shl21
+    %arrayidx23 = getelementptr inbounds i8, i8* %p.0, i64 3
+    %7 = load i8, i8* %arrayidx23, align 1, !tbaa !15
+    %conv24 = zext i8 %7 to i32
+    %shl25 = shl nuw i32 %conv24, 24
+    %or26 = or i32 %or22, %shl25
+    store i32 %or26, i32* %res, align 4, !tbaa !3
+    br label %cleanup31
+  
+  if.end27:                                         ; preds = %if.end12
+    %add.ptr = getelementptr inbounds i8, i8* %p.0, i64 4
+    %sub = add i32 %size.0, -4
+    br label %for.inc
+  
+  for.inc:                                          ; preds = %if.end27, %for.body
+    %size.1 = phi i32 [ %sub, %if.end27 ], [ %size.0, %for.body ]
+    %p.1 = phi i8* [ %add.ptr, %if.end27 ], [ %p.0, %for.body ]
+    %inc = add nuw nsw i32 %i.0, 1
+    br label %for.cond
+  
+  cleanup31:                                        ; preds = %if.then9, %for.cond, %if.then14, %entry
+    %retval.2 = phi i1 [ false, %entry ], [ true, %if.then14 ], [ false, %for.cond ], [ false, %if.then9 ]
+    ret i1 %retval.2
+  }
+  
+  define zeroext i1 @_ZNK8NArchive4NZip10CLocalItem5IsDirEv(%"class.NArchive::NZip::CLocalItem"* %this) local_unnamed_addr #1 align 2 {
+  entry:
+    %Name = getelementptr inbounds %"class.NArchive::NZip::CLocalItem", %"class.NArchive::NZip::CLocalItem"* %this, i64 0, i32 7
+    %call2 = tail call zeroext i1 @_ZN8NArchive9NItemName12HasTailSlashERK11CStringBaseIcEj(%class.CStringBase* nonnull dereferenceable(16) %Name, i32 1) #4
+    ret i1 %call2
+  }
+  
+  declare zeroext i1 @_ZN8NArchive9NItemName12HasTailSlashERK11CStringBaseIcEj(%class.CStringBase* dereferenceable(16), i32) local_unnamed_addr #2
+  
+  define i32 @_ZNK8NArchive4NZip5CItem16GetWinAttributesEv(%"class.NArchive::NZip::CItem"* %this) local_unnamed_addr #1 align 2 {
+  entry:
+    %HostOS = getelementptr inbounds %"class.NArchive::NZip::CItem", %"class.NArchive::NZip::CItem"* %this, i64 0, i32 1, i32 1
+    %0 = load i8, i8* %HostOS, align 1, !tbaa !19
+    %1 = zext i8 %0 to i32
+    switch i32 %1, label %sw.epilog [
+      i32 0, label %sw.bb
+      i32 11, label %sw.bb
+      i32 3, label %sw.bb2
+    ]
+  
+  sw.bb:                                            ; preds = %entry, %entry
+    %FromCentral = getelementptr inbounds %"class.NArchive::NZip::CItem", %"class.NArchive::NZip::CItem"* %this, i64 0, i32 11
+    %2 = load i8, i8* %FromCentral, align 1, !tbaa !26, !range !27
+    %tobool = icmp eq i8 %2, 0
+    br i1 %tobool, label %sw.epilog, label %if.then
+  
+  if.then:                                          ; preds = %sw.bb
+    %ExternalAttributes = getelementptr inbounds %"class.NArchive::NZip::CItem", %"class.NArchive::NZip::CItem"* %this, i64 0, i32 3
+    %3 = load i32, i32* %ExternalAttributes, align 4, !tbaa !28
+    br label %sw.epilog
+  
+  sw.bb2:                                           ; preds = %entry
+    %ExternalAttributes3 = getelementptr inbounds %"class.NArchive::NZip::CItem", %"class.NArchive::NZip::CItem"* %this, i64 0, i32 3
+    %4 = load i32, i32* %ExternalAttributes3, align 4, !tbaa !28
+    %and = and i32 %4, -65536
+    %and4 = and i32 %4, 1073741824
+    %tobool5 = icmp eq i32 %and4, 0
+    %spec.select.v = select i1 %tobool5, i32 32768, i32 32784
+    %spec.select = or i32 %spec.select.v, %and
+    br label %cleanup
+  
+  sw.epilog:                                        ; preds = %if.then, %sw.bb, %entry
+    %winAttributes.1 = phi i32 [ %3, %if.then ], [ 0, %sw.bb ], [ 0, %entry ]
+    %call = tail call zeroext i1 @_ZNK8NArchive4NZip5CItem5IsDirEv(%"class.NArchive::NZip::CItem"* nonnull %this) #4
+    %or10 = or i32 %winAttributes.1, 16
+    %spec.select17 = select i1 %call, i32 %or10, i32 %winAttributes.1
+    br label %cleanup
+  
+  cleanup:                                          ; preds = %sw.epilog, %sw.bb2
+    %retval.0 = phi i32 [ %spec.select17, %sw.epilog ], [ %spec.select, %sw.bb2 ]
+    ret i32 %retval.0
+  }
+  
+  declare zeroext i1 @_ZNK8NArchive4NZip5CItem5IsDirEv(%"class.NArchive::NZip::CItem"*) local_unnamed_addr #2
+  
+  define void @_ZN8NArchive4NZip10CLocalItem11SetFlagBitsEiii(%"class.NArchive::NZip::CLocalItem"* nocapture %this, i32 %startBitNumber, i32 %numBits, i32 %value) local_unnamed_addr #0 align 2 {
+  entry:
+    %notmask = shl nsw i32 -1, %numBits
+    %sub = xor i32 %notmask, -1
+    %shl2 = shl i32 %sub, %startBitNumber
+    %Flags = getelementptr inbounds %"class.NArchive::NZip::CLocalItem", %"class.NArchive::NZip::CLocalItem"* %this, i64 0, i32 1
+    %0 = load i16, i16* %Flags, align 2, !tbaa !29
+    %1 = trunc i32 %shl2 to i16
+    %2 = xor i16 %1, -1
+    %conv5 = and i16 %0, %2
+    %shl6 = shl i32 %value, %startBitNumber
+    %3 = trunc i32 %shl6 to i16
+    %conv9 = or i16 %conv5, %3
+    store i16 %conv9, i16* %Flags, align 2, !tbaa !29
+    ret void
+  }
+  
+  define void @_ZN8NArchive4NZip10CLocalItem10SetBitMaskEib(%"class.NArchive::NZip::CLocalItem"* nocapture %this, i32 %bitMask, i1 zeroext %enable) local_unnamed_addr #0 align 2 {
+  entry:
+    %Flags = getelementptr inbounds %"class.NArchive::NZip::CLocalItem", %"class.NArchive::NZip::CLocalItem"* %this, i64 0, i32 1
+    %0 = load i16, i16* %Flags, align 2, !tbaa !29
+    %1 = trunc i32 %bitMask to i16
+    %2 = xor i16 %1, -1
+    %conv5 = and i16 %0, %2
+    %conv2 = or i16 %0, %1
+    %storemerge = select i1 %enable, i16 %conv2, i16 %conv5
+    store i16 %storemerge, i16* %Flags, align 2, !tbaa !29
+    ret void
+  }
+  
+  define void @_ZN8NArchive4NZip10CLocalItem12SetEncryptedEb(%"class.NArchive::NZip::CLocalItem"* nocapture %this, i1 zeroext %encrypted) local_unnamed_addr #0 align 2 {
+  entry:
+    %Flags.i = getelementptr inbounds %"class.NArchive::NZip::CLocalItem", %"class.NArchive::NZip::CLocalItem"* %this, i64 0, i32 1
+    %0 = load i16, i16* %Flags.i, align 2, !tbaa !29
+    %conv5.i = and i16 %0, -2
+    %conv2.i = or i16 %0, 1
+    %storemerge.i = select i1 %encrypted, i16 %conv2.i, i16 %conv5.i
+    store i16 %storemerge.i, i16* %Flags.i, align 2, !tbaa !29
+    ret void
+  }
+  
+  define void @_ZN8NArchive4NZip10CLocalItem7SetUtf8Eb(%"class.NArchive::NZip::CLocalItem"* nocapture %this, i1 zeroext %isUtf8) local_unnamed_addr #0 align 2 {
+  entry:
+    %Flags.i = getelementptr inbounds %"class.NArchive::NZip::CLocalItem", %"class.NArchive::NZip::CLocalItem"* %this, i64 0, i32 1
+    %0 = load i16, i16* %Flags.i, align 2, !tbaa !29
+    %conv5.i = and i16 %0, -2049
+    %conv2.i = or i16 %0, 2048
+    %storemerge.i = select i1 %isUtf8, i16 %conv2.i, i16 %conv5.i
+    store i16 %storemerge.i, i16* %Flags.i, align 2, !tbaa !29
+    ret void
+  }
+  
+  attributes #0 = { minsize noredzone }
+  attributes #1 = { minsize noredzone }
+  attributes #2 = { minsize noredzone }
+  attributes #4 = { minsize noredzone }
+  
+  !llvm.module.flags = !{!0, !1}
+  !llvm.ident = !{!2}
+  
+  !0 = !{i32 1, !"wchar_size", i32 4}
+  !1 = !{i32 7, !"PIC Level", i32 2}
+  !2 = !{!"Facebook clang version 8.0.1 (llvm: 24ad29e5c02c445552bd9739bd0e416bab3ffdb5, cfe: 102c6cffc493305b9d3bf545f595829d29a55ccc, compiler-rt: abdc44a4172e767219762128b320a43cdf55b8bd, lld: 99a3895c4cbf4fc93d188c4d4b65a863db89e17b 5e78c342f952fbbe8a98c845d703ed773e2d5754) (ssh://git.vip.facebook.com/data/gitrepos/osmeta/external/llvm 63f5a476b02475816da9015ec9ee3eb122d7e554) (based on LLVM 8.0.1)"}
+  !3 = !{!4, !4, i64 0}
+  !4 = !{!"int", !5, i64 0}
+  !5 = !{!"omnipotent char", !6, i64 0}
+  !6 = !{!"Simple C++ TBAA"}
+  !7 = !{!8, !9, i64 8}
+  !8 = !{!"_ZTS7CBufferIhE", !9, i64 8, !10, i64 16}
+  !9 = !{!"long", !5, i64 0}
+  !10 = !{!"any pointer", !5, i64 0}
+  !11 = !{!12, !13, i64 0}
+  !12 = !{!"_ZTSN8NArchive4NZip14CExtraSubBlockE", !13, i64 0, !8, i64 8}
+  !13 = !{!"short", !5, i64 0}
+  !14 = !{!8, !10, i64 16}
+  !15 = !{!5, !5, i64 0}
+  !16 = !{!17, !4, i64 0}
+  !17 = !{!"_ZTS9_FILETIME", !4, i64 0, !4, i64 4}
+  !18 = !{!17, !4, i64 4}
+  !19 = !{!20, !5, i64 81}
+  !20 = !{!"_ZTSN8NArchive4NZip5CItemE", !21, i64 80, !13, i64 82, !4, i64 84, !22, i64 88, !17, i64 96, !17, i64 104, !17, i64 112, !23, i64 120, !8, i64 152, !25, i64 176, !25, i64 177, !25, i64 178}
+  !21 = !{!"_ZTSN8NArchive4NZip8CVersionE", !5, i64 0, !5, i64 1}
+  !22 = !{!"long long", !5, i64 0}
+  !23 = !{!"_ZTSN8NArchive4NZip11CExtraBlockE", !24, i64 0}
+  !24 = !{!"_ZTS13CObjectVectorIN8NArchive4NZip14CExtraSubBlockEE"}
+  !25 = !{!"bool", !5, i64 0}
+  !26 = !{!20, !25, i64 177}
+  !27 = !{i8 0, i8 2}
+  !28 = !{!20, !4, i64 84}
+  !29 = !{!30, !13, i64 2}
+  !30 = !{!"_ZTSN8NArchive4NZip10CLocalItemE", !21, i64 0, !13, i64 2, !13, i64 4, !4, i64 8, !4, i64 12, !22, i64 16, !22, i64 24, !31, i64 32, !23, i64 48}
+  !31 = !{!"_ZTS11CStringBaseIcE", !10, i64 0, !4, i64 8, !4, i64 12}
+
+...
+---
+name:            _ZNK8NArchive4NZip14CExtraSubBlock15ExtractNtfsTimeEiR9_FILETIME
+tracksRegLiveness: true
+liveins:         
+  - { reg: '$x0', virtual-reg: '' }
+  - { reg: '$w1', virtual-reg: '' }
+  - { reg: '$x2', virtual-reg: '' }
+body:             |
+  bb.0.entry:
+    successors: %bb.8(0x20000000), %bb.1(0x60000000)
+    liveins: $w1, $x0, $x2
+  
+    $x8 = ORRXrs $xzr, $x0, 0
+    $w0 = MOVZWi 0, 0
+    STRXui $xzr, renamable $x2, 0 :: (store 4 into %ir.0), (store 4 into %ir.0 + 4)
+    renamable $w9 = LDRHHui renamable $x8, 0 :: (load 2 from %ir.ID2, align 8, !tbaa !11)
+    dead $wzr = SUBSWri killed renamable $w9, 10, 0, implicit-def $nzcv
+    Bcc 1, %bb.8, implicit $nzcv
+  
+  bb.1.entry:
+    successors: %bb.8(0x2aaaaaab), %bb.2(0x55555555)
+    liveins: $w0, $w1, $x2, $x8
+  
+    renamable $w9 = LDRWui renamable $x8, 4 :: (load 4 from %ir._capacity.i, align 8, !tbaa !7)
+    dead $wzr = SUBSWri renamable $w9, 32, 0, implicit-def $nzcv
+    Bcc 3, %bb.8, implicit $nzcv
+  
+  bb.2.if.end:
+    successors: %bb.5(0x80000000)
+    liveins: $w1, $w9, $x2, $x8
+  
+    renamable $x8 = LDRXui killed renamable $x8, 3 :: (load 8 from %ir._items.i, !tbaa !14)
+    renamable $x8 = nuw ADDXri killed renamable $x8, 4, 0
+    renamable $w9 = SUBWri killed renamable $w9, 4, 0
+    B %bb.5
+  
+  bb.3.while.body:
+    successors: %bb.4(0x7c000000), %bb.7(0x04000000)
+    liveins: $w1, $w9, $x2, $x8
+  
+    renamable $w11 = LDRBBui renamable $x8, 0 :: (load 1 from %ir.p.0, !tbaa !15)
+    renamable $w10 = LDRBBui renamable $x8, 1 :: (load 1 from %ir.arrayidx8, !tbaa !15)
+    renamable $w11 = BFMWri killed renamable $w11, killed renamable $w10, 24, 7
+    renamable $w10 = LDRBBui renamable $x8, 2 :: (load 1 from %ir.add.ptr12, !tbaa !15)
+    renamable $w12 = LDRBBui renamable $x8, 3 :: (load 1 from %ir.arrayidx16, !tbaa !15)
+    renamable $w10 = BFMWri killed renamable $w10, killed renamable $w12, 24, 7
+    renamable $x8 = nuw ADDXri killed renamable $x8, 4, 0
+    renamable $w9 = SUBWri killed renamable $w9, 4, 0
+    $wzr = SUBSWrs renamable $w10, renamable $w9, 0, implicit-def $nzcv, implicit-def $nzcv
+    renamable $w10 = CSELWr renamable $w9, killed renamable $w10, 8, implicit killed $nzcv
+    dead $wzr = SUBSWri killed renamable $w11, 1, 0, implicit-def $nzcv
+    CCMPWi renamable $w10, 24, 0, 0, implicit-def $nzcv, implicit killed $nzcv
+    Bcc 2, %bb.7, implicit $nzcv
+  
+  bb.4.cleanup:
+    successors: %bb.5(0x80000000)
+    liveins: $w1, $w9, $w10, $x2, $x8
+  
+    renamable $x8 = ADDXrx killed renamable $x8, renamable $w10, 16
+    $w9 = SUBWrs killed renamable $w9, killed renamable $w10, 0
+  
+  bb.5.while.cond:
+    successors: %bb.3(0x7c000000), %bb.6(0x04000000)
+    liveins: $w1, $w9, $x2, $x8
+  
+    dead $wzr = SUBSWri renamable $w9, 5, 0, implicit-def $nzcv
+    Bcc 2, %bb.3, implicit killed $nzcv
+  
+  bb.6:
+    $w0 = MOVZWi 0, 0
+    RET undef $lr, implicit $w0
+  
+  bb.7.cleanup.thread:
+    successors: %bb.8(0x80000000)
+    liveins: $w1, $x2, $x8
+  
+    renamable $x8 = ADDXrx killed renamable $x8, killed renamable $w1, 51
+    renamable $w9 = LDRWui renamable $x8, 0 :: (load 4 from %ir.add.ptr30, align 1)
+    STRWui killed renamable $w9, renamable $x2, 0 :: (store 4 into %ir.8, !tbaa !16)
+    renamable $w8 = LDRWui killed renamable $x8, 1 :: (load 4 from %ir.add.ptr46, align 1)
+    STRWui killed renamable $w8, killed renamable $x2, 1 :: (store 4 into %ir.18, !tbaa !18)
+    renamable $w0 = ORRWri $wzr, 0
+  
+  bb.8.cleanup71:
+    liveins: $w0
+  
+    RET undef $lr, implicit $w0
+
+...
+---
+name:            _ZNK8NArchive4NZip14CExtraSubBlock15ExtractUnixTimeEiRj
+tracksRegLiveness: true
+liveins:         
+  - { reg: '$x0', virtual-reg: '' }
+  - { reg: '$w1', virtual-reg: '' }
+  - { reg: '$x2', virtual-reg: '' }
+body:             |
+  bb.0.entry:
+    successors: %bb.10(0x40000000), %bb.1(0x40000000)
+    liveins: $w1, $x0, $x2
+  
+    $x8 = ORRXrs $xzr, $x0, 0
+    $w0 = MOVZWi 0, 0
+    STRWui $wzr, renamable $x2, 0 :: (store 4 into %ir.res, !tbaa !3)
+    renamable $w11 = LDRWui renamable $x8, 4 :: (load 4 from %ir._capacity.i, align 8, !tbaa !7)
+    renamable $w9 = LDRHHui renamable $x8, 0 :: (load 2 from %ir.ID1, align 8, !tbaa !11)
+    $w10 = MOVZWi 21589, 0
+    $wzr = SUBSWrs killed renamable $w9, killed renamable $w10, 0, implicit-def $nzcv, implicit-def $nzcv
+    CCMPWi renamable $w11, 5, 0, 0, implicit-def $nzcv, implicit killed $nzcv
+    Bcc 3, %bb.10, implicit $nzcv
+  
+  bb.1.if.end:
+    successors: %bb.7(0x80000000)
+    liveins: $w1, $w11, $x2, $x8
+  
+    $w9 = MOVZWi 0, 0
+    renamable $x8 = LDRXui killed renamable $x8, 3 :: (load 8 from %ir._items.i, !tbaa !14)
+    early-clobber renamable $x8, renamable $w10 = LDRBBpost killed renamable $x8, 1
+    renamable $w11 = SUBWri killed renamable $w11, 1, 0
+    renamable $w12 = ORRWri $wzr, 0
+    B %bb.7
+  
+  bb.2.for.body:
+    successors: %bb.6(0x30000000), %bb.3(0x50000000)
+    liveins: $w1, $w9, $w10, $w11, $w12, $x2, $x8
+  
+    renamable $w13 = LSLVWr renamable $w12, renamable $w9
+    $wzr = ANDSWrs killed renamable $w13, renamable $w10, 0, implicit-def $nzcv, implicit-def $nzcv
+    Bcc 0, %bb.6, implicit $nzcv
+  
+  bb.3.if.then9:
+    successors: %bb.8(0x04000000), %bb.4(0x7c000000)
+    liveins: $w1, $w9, $w10, $w11, $w12, $x2, $x8
+  
+    renamable $w11 = SUBSWri killed renamable $w11, 4, 0, implicit-def $nzcv
+    Bcc 3, %bb.8, implicit $nzcv
+  
+  bb.4.if.end12:
+    successors: %bb.9(0x04000000), %bb.5(0x7c000000)
+    liveins: $w1, $w9, $w10, $w11, $w12, $x2, $x8
+  
+    $wzr = SUBSWrs renamable $w1, renamable $w9, 0, implicit-def $nzcv, implicit-def $nzcv
+    Bcc 0, %bb.9, implicit $nzcv
+  
+  bb.5.if.end27:
+    successors: %bb.6(0x80000000)
+    liveins: $w1, $w9, $w10, $w11, $w12, $x2, $x8
+  
+    renamable $x8 = nuw ADDXri killed renamable $x8, 4, 0
+  
+  bb.6.for.inc:
+    successors: %bb.7(0x80000000)
+    liveins: $w1, $w9, $w10, $w11, $w12, $x2, $x8
+  
+    renamable $w9 = nuw nsw ADDWri killed renamable $w9, 1, 0
+  
+  bb.7.for.cond:
+    successors: %bb.2(0x7c000000), %bb.8(0x04000000)
+    liveins: $w1, $w9, $w10, $w11, $w12, $x2, $x8
+  
+    dead $wzr = SUBSWri renamable $w9, 2, 0, implicit-def $nzcv
+    Bcc 9, %bb.2, implicit killed $nzcv
+  
+  bb.8:
+    $w0 = MOVZWi 0, 0
+    RET undef $lr, implicit $w0
+  
+  bb.9.if.then14:
+    successors: %bb.10(0x80000000)
+    liveins: $x2, $x8
+  
+    renamable $w8 = LDRWui killed renamable $x8, 0 :: (load 4 from %ir.p.0, align 1)
+    STRWui killed renamable $w8, killed renamable $x2, 0 :: (store 4 into %ir.res, !tbaa !3)
+    renamable $w0 = ORRWri $wzr, 0
+  
+  bb.10.cleanup31:
+    liveins: $w0
+  
+    RET undef $lr, implicit $w0
+
+...
+---
+name:            _ZNK8NArchive4NZip10CLocalItem5IsDirEv
+tracksRegLiveness: true
+liveins:         
+  - { reg: '$x0', virtual-reg: '' }
+body:             |
+  bb.0.entry:
+    liveins: $x0
+  
+    renamable $x0 = nuw ADDXri killed renamable $x0, 32, 0
+    $w1 = ORRWri $wzr, 0
+    TCRETURNdi @_ZN8NArchive9NItemName12HasTailSlashERK11CStringBaseIcEj, 0, csr_aarch64_aapcs, implicit $sp, implicit $x0, implicit killed $w1
+
+...
+---
+name:            _ZNK8NArchive4NZip5CItem16GetWinAttributesEv
+alignment:       2
+tracksRegLiveness: true
+liveins:         
+  - { reg: '$x0', virtual-reg: '' }
+stack:           
+  - { id: 0, name: '', type: spill-slot, offset: -8, size: 8, alignment: 8, 
+      stack-id: 0, callee-saved-register: '$lr', callee-saved-restored: true, 
+      debug-info-variable: '', debug-info-expression: '', debug-info-location: '' }
+  - { id: 1, name: '', type: spill-slot, offset: -16, size: 8, alignment: 8, 
+      stack-id: 0, callee-saved-register: '$fp', callee-saved-restored: true, 
+      debug-info-variable: '', debug-info-expression: '', debug-info-location: '' }
+  - { id: 2, name: '', type: spill-slot, offset: -24, size: 8, alignment: 8, 
+      stack-id: 0, callee-saved-register: '$x19', callee-saved-restored: true, 
+      debug-info-variable: '', debug-info-expression: '', debug-info-location: '' }
+  - { id: 3, name: '', type: spill-slot, offset: -32, size: 8, alignment: 8, 
+      stack-id: 0, callee-saved-register: '$x20', callee-saved-restored: true, 
+      debug-info-variable: '', debug-info-expression: '', debug-info-location: '' }
+constants:       []
+body:             |
+  bb.0.entry:
+    successors: %bb.3(0x20000000), %bb.1(0x60000000)
+    liveins: $x0, $x19, $x20, $lr
+  
+    early-clobber $sp = frame-setup STPXpre killed $x20, killed $x19, $sp, -4 :: (store 8 into %stack.3), (store 8 into %stack.2)
+    frame-setup STPXi killed $fp, killed $lr, $sp, 2 :: (store 8 into %stack.1), (store 8 into %stack.0)
+    $fp = frame-setup ADDXri $sp, 16, 0
+    frame-setup CFI_INSTRUCTION def_cfa $w29, 16
+    frame-setup CFI_INSTRUCTION offset $w30, -8
+    frame-setup CFI_INSTRUCTION offset $w29, -16
+    frame-setup CFI_INSTRUCTION offset $w19, -24
+    frame-setup CFI_INSTRUCTION offset $w20, -32
+    renamable $w8 = LDRBBui renamable $x0, 81 :: (load 1 from %ir.HostOS, !tbaa !19)
+    dead $wzr = SUBSWri renamable $w8, 11, 0, implicit-def $nzcv
+    Bcc 0, %bb.3, implicit $nzcv
+  
+  bb.1.entry:
+    successors: %bb.7(0x2aaaaaab), %bb.2(0x55555555)
+    liveins: $w8, $x0
+  
+    dead $wzr = SUBSWri renamable $w8, 3, 0, implicit-def $nzcv
+    Bcc 0, %bb.7, implicit $nzcv
+  
+  bb.2.entry:
+    successors: %bb.3(0x40000000), %bb.5(0x40000000)
+    liveins: $w8, $x0
+  
+    CBNZW killed renamable $w8, %bb.5
+  
+  bb.3.sw.bb:
+    successors: %bb.5(0x30000000), %bb.4(0x50000000)
+    liveins: $x0
+  
+    renamable $w8 = LDRBBui renamable $x0, 177 :: (load 1 from %ir.FromCentral, !tbaa !26, !range !27)
+    CBZW killed renamable $w8, %bb.5
+  
+  bb.4.if.then:
+    successors: %bb.6(0x80000000)
+    liveins: $x0
+  
+    renamable $w19 = LDRWui renamable $x0, 21 :: (load 4 from %ir.ExternalAttributes, !tbaa !28)
+    B %bb.6
+  
+  bb.5:
+    successors: %bb.6(0x80000000)
+    liveins: $x0
+  
+    $w19 = MOVZWi 0, 0
+  
+  bb.6.sw.epilog:
+    successors: %bb.8(0x80000000)
+    liveins: $w19, $x0
+  
+    BL @_ZNK8NArchive4NZip5CItem5IsDirEv, csr_aarch64_aapcs, implicit-def dead $lr, implicit $sp, implicit $x0, implicit-def $sp, implicit-def $w0
+    renamable $w8 = ORRWri renamable $w19, 1792
+    dead $wzr = SUBSWri killed renamable $w0, 0, 0, implicit-def $nzcv
+    renamable $w0 = CSELWr killed renamable $w8, killed renamable $w19, 1, implicit killed $nzcv
+    B %bb.8
+  
+  bb.7.sw.bb2:
+    successors: %bb.8(0x80000000)
+    liveins: $x0
+  
+    renamable $w8 = LDRWui killed renamable $x0, 21 :: (load 4 from %ir.ExternalAttributes3, !tbaa !28)
+    renamable $w9 = ANDWri renamable $w8, 1039
+    dead $wzr = ANDSWri killed renamable $w8, 128, implicit-def $nzcv
+    $w8 = MOVZWi 32784, 0
+    renamable $w10 = ORRWri $wzr, 1088
+    renamable $w8 = CSELWr killed renamable $w10, killed renamable $w8, 0, implicit killed $nzcv
+    $w0 = ORRWrs killed renamable $w8, killed renamable $w9, 0
+  
+  bb.8.cleanup:
+    liveins: $w0
+  
+    $fp, $lr = frame-destroy LDPXi $sp, 2 :: (load 8 from %stack.1), (load 8 from %stack.0)
+    early-clobber $sp, $x20, $x19 = frame-destroy LDPXpost $sp, 4 :: (load 8 from %stack.3), (load 8 from %stack.2)
+    RET undef $lr, implicit $w0
+
+...
+---
+name:            _ZN8NArchive4NZip10CLocalItem11SetFlagBitsEiii
+alignment:       2
+tracksRegLiveness: true
+liveins:         
+  - { reg: '$x0', virtual-reg: '' }
+  - { reg: '$w1', virtual-reg: '' }
+  - { reg: '$w2', virtual-reg: '' }
+  - { reg: '$w3', virtual-reg: '' }
+body:             |
+  bb.0.entry:
+    liveins: $w1, $w2, $w3, $x0
+  
+    $w8 = MOVNWi 0, 0
+    renamable $w8 = nsw LSLVWr killed renamable $w8, killed renamable $w2
+    $w8 = ORNWrs $wzr, killed renamable $w8, 0
+    renamable $w8 = LSLVWr killed renamable $w8, renamable $w1
+    renamable $w9 = LDRHHui renamable $x0, 1 :: (load 2 from %ir.Flags, !tbaa !29)
+    $w8 = BICWrs killed renamable $w9, killed renamable $w8, 0
+    renamable $w9 = LSLVWr killed renamable $w3, killed renamable $w1
+    $w8 = ORRWrs killed renamable $w8, killed renamable $w9, 0
+    STRHHui killed renamable $w8, killed renamable $x0, 1 :: (store 2 into %ir.Flags, !tbaa !29)
+    RET undef $lr
+
+...
+---
+name:            _ZN8NArchive4NZip10CLocalItem10SetBitMaskEib
+tracksRegLiveness: true
+liveins:         
+  - { reg: '$x0', virtual-reg: '' }
+  - { reg: '$w1', virtual-reg: '' }
+  - { reg: '$w2', virtual-reg: '' }
+body:             |
+  bb.0.entry:
+    liveins: $w1, $w2, $x0
+  
+    renamable $w8 = LDRHHui renamable $x0, 1 :: (load 2 from %ir.Flags, !tbaa !29)
+    $w9 = BICWrs renamable $w8, renamable $w1, 0
+    $w8 = ORRWrs killed renamable $w8, killed renamable $w1, 0
+    dead $wzr = SUBSWri killed renamable $w2, 0, 0, implicit-def $nzcv
+    renamable $w8 = CSELWr killed renamable $w8, killed renamable $w9, 1, implicit killed $nzcv
+    STRHHui killed renamable $w8, killed renamable $x0, 1 :: (store 2 into %ir.Flags, !tbaa !29)
+    RET undef $lr
+
+...
+---
+#ITER1-LABEL: name: _ZN8NArchive4NZip10CLocalItem12SetEncryptedEb
+#ITER1:       renamable $w8 = ORRWri killed renamable $w8, 0
+#ITER1:       dead $wzr = SUBSWri killed renamable $w1, 0, 0, implicit-def $nzcv
+#ITER1-NEXT:  renamable $w8 = CSELWr killed renamable $w8, killed renamable $w9, 1, implicit killed $nzcv
+#ITER1-NEXT:  TCRETURNdi @OUTLINED_FUNCTION_0
+
+#ITER2-LABEL: name: _ZN8NArchive4NZip10CLocalItem12SetEncryptedEb
+#ITER2:       renamable $w8 = ORRWri killed renamable $w8, 0
+#ITER2-NEXT:  TCRETURNdi @OUTLINED_FUNCTION_1
+name:            _ZN8NArchive4NZip10CLocalItem12SetEncryptedEb
+tracksRegLiveness: true
+liveins:         
+  - { reg: '$x0', virtual-reg: '' }
+  - { reg: '$w1', virtual-reg: '' }
+body:             |
+  bb.0.entry:
+    liveins: $w1, $x0
+  
+    renamable $w8 = LDRHHui renamable $x0, 1 :: (load 2 from %ir.Flags.i, !tbaa !29)
+    renamable $w9 = ANDWri renamable $w8, 1998
+    renamable $w8 = ORRWri killed renamable $w8, 0
+    dead $wzr = SUBSWri killed renamable $w1, 0, 0, implicit-def $nzcv
+    renamable $w8 = CSELWr killed renamable $w8, killed renamable $w9, 1, implicit killed $nzcv
+    STRHHui killed renamable $w8, killed renamable $x0, 1 :: (store 2 into %ir.Flags.i, !tbaa !29)
+    RET undef $lr
+
+...
+---
+#ITER1-LABEL: name: _ZN8NArchive4NZip10CLocalItem7SetUtf8Eb
+#ITER1:       renamable $w8 = ORRWri killed renamable $w8, 1344
+#ITER1:       dead $wzr = SUBSWri killed renamable $w1, 0, 0, implicit-def $nzcv
+#ITER1-NEXT:  renamable $w8 = CSELWr killed renamable $w8, killed renamable $w9, 1, implicit killed $nzcv
+#ITER1-NEXT:  TCRETURNdi @OUTLINED_FUNCTION_0
+
+#ITER2-LABEL: name: _ZN8NArchive4NZip10CLocalItem7SetUtf8Eb
+#ITER2:       renamable $w8 = ORRWri killed renamable $w8, 1344
+#ITER2-NEXT:  TCRETURNdi @OUTLINED_FUNCTION_1
+name:            _ZN8NArchive4NZip10CLocalItem7SetUtf8Eb
+tracksRegLiveness: true
+liveins:         
+  - { reg: '$x0', virtual-reg: '' }
+  - { reg: '$w1', virtual-reg: '' }
+body:             |
+  bb.0.entry:
+    liveins: $w1, $x0
+  
+    renamable $w8 = LDRHHui renamable $x0, 1 :: (load 2 from %ir.Flags.i, !tbaa !29)
+    renamable $w9 = ANDWri renamable $w8, 1310
+    renamable $w8 = ORRWri killed renamable $w8, 1344
+    dead $wzr = SUBSWri killed renamable $w1, 0, 0, implicit-def $nzcv
+    renamable $w8 = CSELWr killed renamable $w8, killed renamable $w9, 1, implicit killed $nzcv
+    STRHHui killed renamable $w8, killed renamable $x0, 1 :: (store 2 into %ir.Flags.i, !tbaa !29)
+    RET undef $lr
+
+...
+#ITER1-LABEL: name:            OUTLINED_FUNCTION_0
+#ITER1:       STRHHui killed renamable $w8, killed renamable $x0, 1
+#ITER1-NEXT:  RET undef $lr
+
+#ITER2-LABEL: name:            OUTLINED_FUNCTION_0
+#ITER2:       STRHHui killed renamable $w8, killed renamable $x0, 1
+#ITER2-NEXT:  RET undef $lr
+#ITER2-LABEL: name:            OUTLINED_FUNCTION_1
+#ITER2:       dead $wzr = SUBSWri killed renamable $w1, 0, 0, implicit-def $nzcv
+#ITER2-NEXT:  renamable $w8 = CSELWr killed renamable $w8, killed renamable $w9, 1, implicit killed $nzcv
+#ITER2-NEXT:  TCRETURNdi @OUTLINED_FUNCTION_0

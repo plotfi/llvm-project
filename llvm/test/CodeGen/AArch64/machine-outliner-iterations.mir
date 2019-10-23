@@ -1,0 +1,144 @@
+# RUN: llc -mtriple=aarch64-linux-gnu -run-pass=machine-outliner -outlining-iterations=0 -debug-only=machine-outliner\
+# RUN: -verify-machineinstrs %s -o /dev/null 2>&1  | FileCheck --check-prefix=ITER0 %s
+# RUN: llc -mtriple=aarch64-linux-gnu -run-pass=machine-outliner -outlining-iterations=1\
+# RUN: -verify-machineinstrs %s -o - | FileCheck --check-prefix=ITER1 %s
+# RUN: llc -mtriple=aarch64-linux-gnu -run-pass=machine-outliner -outlining-iterations=2\
+# RUN: -verify-machineinstrs %s -o - | FileCheck --check-prefix=ITER2 %s
+# RUN: llc -mtriple=aarch64-linux-gnu -run-pass=machine-outliner -outlining-iterations=3 -debug-only=machine-outliner\
+# RUN: -verify-machineinstrs %s -o /dev/null 2>&1  | FileCheck --check-prefix=ITER3 %s
+
+--- |
+  declare void @z1(i32, i32) #0
+  declare void @z2(i32, i32, i32) #0
+  define void @a(i32 %p1) #0 {
+  entry:
+    call void @z1(i32 1, i32 3)
+    call void @z2(i32 %p1, i32 3, i32 4)
+    call void @z2(i32 %p1, i32 2, i32 4)
+    call void @z1(i32 1, i32 3)
+    ret void
+  }
+  define void @b(i32 %p1) #0 {
+  entry:
+    call void @z1(i32 1, i32 3)
+    call void @z2(i32 %p1, i32 2, i32 4)
+    call void @z2(i32 %p1, i32 2, i32 4)
+    call void @z1(i32 1, i32 3)
+    ret void
+  }
+  attributes #0 = { noredzone minsize }
+...
+---
+#ITER1-LABEL: name: a
+#ITER1:      $w19 = ORRWrs $wzr, killed $w0, 0
+#ITER1-NEXT: BL @OUTLINED_FUNCTION_0
+#ITER1-NEXT: $w1 = ORRWri $wzr, 1
+#ITER1-NEXT: BL @OUTLINED_FUNCTION_1
+#ITER1-NEXT: $w1 = ORRWri $wzr, 1984
+#ITER1-NEXT: BL @OUTLINED_FUNCTION_1
+#ITER1-NEXT: BL @OUTLINED_FUNCTION_0
+
+#ITER2-LABEL: name: a
+#ITER2:      $w19 = ORRWrs $wzr, killed $w0, 0
+#ITER2-NEXT: BL @OUTLINED_FUNCTION_0
+#ITER2-NEXT: $w1 = ORRWri $wzr, 1
+#ITER2-NEXT: BL @OUTLINED_FUNCTION_1
+#ITER2-NEXT: BL @OUTLINED_FUNCTION_2
+#ITER2-NEXT: BL @OUTLINED_FUNCTION_0
+name:            a
+tracksRegLiveness: true
+liveins:
+  - { reg: '$w0', virtual-reg: '' }
+stack:
+  - { id: 0, name: '', type: spill-slot, offset: -8, size: 8, alignment: 8,
+      stack-id: 0, callee-saved-register: '$lr', callee-saved-restored: true,
+      debug-info-variable: '', debug-info-expression: '', debug-info-location: '' }
+  - { id: 1, name: '', type: spill-slot, offset: -16, size: 8, alignment: 8,
+      stack-id: 0, callee-saved-register: '$x19', callee-saved-restored: true,
+      debug-info-variable: '', debug-info-expression: '', debug-info-location: '' }
+constants:       []
+body:             |
+  bb.0.entry:
+    liveins: $w0, $lr, $x19
+
+    early-clobber $sp = frame-setup STPXpre killed $x19, killed $lr, $sp, -2 :: (store 8 into %stack.1), (store 8 into %stack.0)
+    $w19 = ORRWrs $wzr, killed $w0, 0
+    $w0 = ORRWri $wzr, 0
+    $w1 = ORRWri $wzr, 1
+    BL @z1, csr_aarch64_aapcs, implicit-def dead $lr, implicit $sp, implicit killed $w0, implicit killed $w1, implicit-def $sp
+    $w1 = ORRWri $wzr, 1
+    $w2 = ORRWri $wzr, 1920
+    $w0 = ORRWrs $wzr, $w19, 0
+    BL @z2, csr_aarch64_aapcs, implicit-def dead $lr, implicit $sp, implicit killed $w0, implicit killed $w1, implicit killed $w2, implicit-def $sp
+    $w1 = ORRWri $wzr, 1984
+    $w2 = ORRWri $wzr, 1920
+    $w0 = ORRWrs $wzr, killed $w19, 0
+    BL @z2, csr_aarch64_aapcs, implicit-def dead $lr, implicit $sp, implicit killed $w0, implicit killed $w1, implicit killed $w2, implicit-def $sp
+    $w0 = ORRWri $wzr, 0
+    $w1 = ORRWri $wzr, 1
+    BL @z1, csr_aarch64_aapcs, implicit-def dead $lr, implicit $sp, implicit killed $w0, implicit killed $w1, implicit-def $sp
+    early-clobber $sp, $x19, $lr = frame-destroy LDPXpost $sp, 2 :: (load 8 from %stack.1), (load 8 from %stack.0)
+    RET undef $lr
+
+...
+---
+#ITER1-LABEL: name: b
+#ITER1:      $w19 = ORRWrs $wzr, killed $w0, 0
+#ITER1-NEXT: BL @OUTLINED_FUNCTION_0
+#ITER1-NEXT: $w1 = ORRWri $wzr, 1984
+#ITER1-NEXT: BL @OUTLINED_FUNCTION_1
+#ITER1-NEXT: $w1 = ORRWri $wzr, 1984
+#ITER1-NEXT: BL @OUTLINED_FUNCTION_1
+#ITER1-NEXT: BL @OUTLINED_FUNCTION_0
+
+#ITER2-LABEL: name: b
+#ITER2:      $w19 = ORRWrs $wzr, killed $w0, 0
+#ITER2-NEXT: BL @OUTLINED_FUNCTION_0
+#ITER2-NEXT: BL @OUTLINED_FUNCTION_2
+#ITER2-NEXT: BL @OUTLINED_FUNCTION_2
+#ITER2-NEXT: BL @OUTLINED_FUNCTION_0
+name:            b
+tracksRegLiveness: true
+liveins:
+  - { reg: '$w0', virtual-reg: '' }
+stack:
+  - { id: 0, name: '', type: spill-slot, offset: -8, size: 8, alignment: 8,
+      stack-id: 0, callee-saved-register: '$lr', callee-saved-restored: true,
+      debug-info-variable: '', debug-info-expression: '', debug-info-location: '' }
+  - { id: 1, name: '', type: spill-slot, offset: -16, size: 8, alignment: 8,
+      stack-id: 0, callee-saved-register: '$x19', callee-saved-restored: true,
+      debug-info-variable: '', debug-info-expression: '', debug-info-location: '' }
+constants:       []
+body:             |
+  bb.0.entry:
+    liveins: $w0, $lr, $x19
+
+    early-clobber $sp = frame-setup STPXpre killed $x19, killed $lr, $sp, -2 :: (store 8 into %stack.1), (store 8 into %stack.0)
+    $w19 = ORRWrs $wzr, killed $w0, 0
+    $w0 = ORRWri $wzr, 0
+    $w1 = ORRWri $wzr, 1
+    BL @z1, csr_aarch64_aapcs, implicit-def dead $lr, implicit $sp, implicit killed $w0, implicit killed $w1, implicit-def $sp
+    $w1 = ORRWri $wzr, 1984
+    $w2 = ORRWri $wzr, 1920
+    $w0 = ORRWrs $wzr, $w19, 0
+    BL @z2, csr_aarch64_aapcs, implicit-def dead $lr, implicit $sp, implicit killed $w0, implicit killed $w1, implicit killed $w2, implicit-def $sp
+    $w1 = ORRWri $wzr, 1984
+    $w2 = ORRWri $wzr, 1920
+    $w0 = ORRWrs $wzr, killed $w19, 0
+    BL @z2, csr_aarch64_aapcs, implicit-def dead $lr, implicit $sp, implicit killed $w0, implicit killed $w1, implicit killed $w2, implicit-def $sp
+    $w0 = ORRWri $wzr, 0
+    $w1 = ORRWri $wzr, 1
+    BL @z1, csr_aarch64_aapcs, implicit-def dead $lr, implicit $sp, implicit killed $w0, implicit killed $w1, implicit-def $sp
+    early-clobber $sp, $x19, $lr = frame-destroy LDPXpost $sp, 2 :: (load 8 from %stack.1), (load 8 from %stack.0)
+    RET undef $lr
+...
+#ITER0: No outlining is performed
+
+#ITER1-LABEL: name: OUTLINED_FUNCTION_0
+#ITER1-LABEL: name: OUTLINED_FUNCTION_1
+
+#ITER2-LABEL: name: OUTLINED_FUNCTION_0
+#ITER2-LABEL: name: OUTLINED_FUNCTION_1
+#ITER2-LABEL: name: OUTLINED_FUNCTION_2
+
+# ITER3: Did not outline on iteration 3 out of 3

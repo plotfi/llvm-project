@@ -5603,6 +5603,11 @@ MachineBasicBlock::iterator AArch64InstrInfo::insertOutlinedCall(
 
 bool AArch64InstrInfo::shouldOutlineFromFunctionByDefault(
   MachineFunction &MF) const {
+#ifdef __FACEBOOK__
+  // Do not outline ones that are already outlined.
+  if (MF.getFunction().getName().startswith("OUTLINED_FUNCTION"))
+    return false;
+#endif // __FACEBOOK__
   return MF.getFunction().optForMinSize();
 }
 
