@@ -872,8 +872,6 @@ struct MachineOutliner : public ModulePass {
 
 #ifdef __FACEBOOK__
   bool OnlyTailCalls;
-  /// Number to append to the current outlined function.
-  unsigned OutlinedFunctionNum = 0;
 #endif
 
   StringRef getPassName() const override { return "Machine Outliner"; }
@@ -1158,6 +1156,10 @@ MachineOutliner::createOutlinedFunction(Module &M, OutlinedFunction &OF,
   // NOTE: If this is linkonceodr, then we can take advantage of linker deduping
   // which gives us better results when we outline from linkonceodr functions.
   F->setLinkage(GlobalValue::InternalLinkage);
+#ifdef __FACEBOOK__
+  if (UseLinkOnceODRLinkageOutlining)
+    F->setLinkage(GlobalValue::LinkOnceODRLinkage);
+#endif // __FACEBOOK__
   F->setUnnamedAddr(GlobalValue::UnnamedAddr::Global);
 
   // FIXME: Set nounwind, so we don't generate eh_frame? Haven't verified it's
@@ -1241,16 +1243,26 @@ MachineOutliner::createOutlinedFunction(Module &M, OutlinedFunction &OF,
   return &MF;
 }
 
+#ifdef __FACEBOOK__
+// Generate a thread-safe unique ID.
+// This is required to allow linkOnceODR linkage.
+unsigned GlobalOutlinedFunctionNum = -1;
+std::mutex MutexFunctionNum;
+static unsigned getNextOutlinedFunctionNum() {
+  std::lock_guard<std::mutex> Lock(MutexFunctionNum);
+  GlobalOutlinedFunctionNum++;
+  return GlobalOutlinedFunctionNum;
+}
+#endif // __FACEBOOK__
+
 bool MachineOutliner::outline(Module &M,
                               std::vector<OutlinedFunction> &FunctionList,
                               InstructionMapper &Mapper) {
 
   bool OutlinedSomething = false;
 
-#ifndef __FACEBOOK__
   // Number to append to the current outlined function.
   unsigned OutlinedFunctionNum = 0;
-#endif // !__FACEBOOK__
 
   // Sort by benefit. The most beneficial functions should be outlined first.
   std::stable_sort(
@@ -1277,7 +1289,11 @@ bool MachineOutliner::outline(Module &M,
 
     // It's beneficial. Create the function and outline its sequence's
     // occurrences.
+#ifdef __FACEBOOK__
+    OF.MF = createOutlinedFunction(M, OF, Mapper, getNextOutlinedFunctionNum());
+#else
     OF.MF = createOutlinedFunction(M, OF, Mapper, OutlinedFunctionNum);
+#endif // __FACEBOOK__
     emitOutlinedFunctionRemark(OF);
     FunctionsCreated++;
     OutlinedFunctionNum++; // Created a function, move to the next name.
