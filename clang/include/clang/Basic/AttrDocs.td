@@ -4056,6 +4056,17 @@ overheads associated with defining and calling such a method.
   }];
 }
 
+def ObjCMethodUnnamedDocs : Documentation {
+  let Category = DocCatDecl;
+  let Content = [{
+The ``objc_method_unnamed`` attribute can be used to mark an Objective-C
+method for selector renaming. An unnamed method should be treated as dynamic,
+but can be assumed will not be invoked using its literal selector. That is to
+say that the underlying selector can be shortened or compressed
+(preserving arity) by the compiler.
+  }];
+}
+
 def ObjCDirectDocs : Documentation {
   let Category = DocCatDecl;
   let Content = [{

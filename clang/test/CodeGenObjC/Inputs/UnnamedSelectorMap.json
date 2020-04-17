@@ -1,0 +1,5 @@
+{
+  "testMethod" : "a",
+  "testMethod:foo:" : "a::",
+  "testMethod:bar:" : "b::"
+}

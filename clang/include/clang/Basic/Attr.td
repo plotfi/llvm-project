@@ -1961,6 +1961,13 @@ def ObjCDesignatedInitializer : Attr {
   let Documentation = [Undocumented];
 }
 
+def ObjCMethodUnnamed : Attr {
+  let Spellings = [Clang<"objc_method_unnamed">];
+  let Subjects = SubjectList<[ObjCMethod], ErrorDiag>;
+  let LangOpts = [ObjC];
+  let Documentation = [ObjCMethodUnnamedDocs];
+}
+
 def ObjCDirect : Attr {
   let Spellings = [Clang<"objc_direct">];
   let Subjects = SubjectList<[ObjCMethod], ErrorDiag>;

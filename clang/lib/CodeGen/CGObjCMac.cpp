@@ -2168,6 +2168,28 @@ CGObjCCommonMac::EmitMessageSend(CodeGen::CodeGenFunction &CGF,
     SelValue = GetSelector(CGF, Sel);
   }
 
+  // If this ObjCMethodDecl is marked as unnamed, set an attribute on its
+  // selector so that the backend can know it can rename the selector name if
+  // it that is specified by some backend pass.
+  if (Method && Method->hasAttr<ObjCMethodUnnamedAttr>())
+    [](llvm::Value *SelValue) {
+      const auto *LI = dyn_cast<llvm::LoadInst>(SelValue);
+      if (!LI || !LI->getNumOperands())
+        return;
+      const auto *SelRef = dyn_cast<llvm::GlobalVariable>(LI->getOperand(0));
+      if (!SelRef || !SelRef->getNumOperands())
+        return;
+      const auto *GEP = dyn_cast<llvm::ConstantExpr>(SelRef->getOperand(0));
+      if (!GEP || !GEP->getNumOperands())
+        return;
+      auto *GV = dyn_cast<llvm::GlobalVariable>(GEP->getOperand(0));
+      if (!GV || GV->hasAttribute("objc_selector_unnamed"))
+        return;
+
+      GV->setAttributes(GV->getAttributes().addAttribute(
+          GV->getContext(), "objc_selector_unnamed"));
+    }(SelValue);
+
   CallArgList ActualArgs;
   if (!IsSuper)
     Arg0 = CGF.Builder.CreateBitCast(Arg0, ObjCTypes.ObjectPtrTy);

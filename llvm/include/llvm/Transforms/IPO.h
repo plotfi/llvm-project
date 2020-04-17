@@ -269,6 +269,10 @@ ModulePass *
 createWholeProgramDevirtPass(ModuleSummaryIndex *ExportSummary,
                              const ModuleSummaryIndex *ImportSummary);
 
+/// \brief This pass shortens selector names of ObjC methods by hashing them and
+///        preserving arity.
+ModulePass *createMethodSelectorNameShorteningPass();
+
 /// This pass splits globals into pieces for the benefit of whole-program
 /// devirtualization and control-flow integrity.
 ModulePass *createGlobalSplitPass();

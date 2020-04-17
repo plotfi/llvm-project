@@ -729,6 +729,9 @@ void EmitAssemblyHelper::CreatePasses(legacy::PassManager &MPM,
           getInstrProfOptions(CodeGenOpts, LangOpts))
     MPM.add(createInstrProfilingLegacyPass(*Options, false));
 
+  if (CodeGenOpts.ObjCRenameUnamedSelectors)
+    MPM.add(createMethodSelectorNameShorteningPass());
+
   bool hasIRInstr = false;
   if (CodeGenOpts.hasProfileIRInstr()) {
     PMBuilder.EnablePGOInstrGen = true;

@@ -1629,6 +1629,8 @@ def fno_objc_convert_messages_to_runtime_calls :
   Flag<["-"], "fno-objc-convert-messages-to-runtime-calls">, Group<f_Group>, Flags<[CC1Option]>;
 def fobjc_arc_exceptions : Flag<["-"], "fobjc-arc-exceptions">, Group<f_Group>, Flags<[CC1Option]>,
   HelpText<"Use EH-safe code when synthesizing retains and releases in -fobjc-arc">;
+def fobjc_rename_unnamed_selectors : Flag<["-"], "fobjc-rename-unnamed-selectors">, Group<f_Group>, Flags<[CC1Option]>,
+  HelpText<"For ObjC methods marked as objc_method_unnamed, allow the backend to rename its selector.">;
 def fno_objc_arc_exceptions : Flag<["-"], "fno-objc-arc-exceptions">, Group<f_Group>;
 def fobjc_atdefs : Flag<["-"], "fobjc-atdefs">, Group<clang_ignored_f_Group>;
 def fobjc_call_cxx_cdtors : Flag<["-"], "fobjc-call-cxx-cdtors">, Group<clang_ignored_f_Group>;

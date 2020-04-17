@@ -3483,6 +3483,9 @@ static void RenderObjCOptions(const ToolChain &TC, const Driver &D,
       CmdArgs.push_back("-fobjc-arc-exceptions");
   }
 
+  if (Args.hasArg(options::OPT_fobjc_rename_unnamed_selectors))
+    CmdArgs.push_back("-fobjc-rename-unnamed-selectors");
+
   // Silence warning for full exception code emission options when explicitly
   // set to use no ARC.
   if (Args.hasArg(options::OPT_fno_objc_arc)) {
