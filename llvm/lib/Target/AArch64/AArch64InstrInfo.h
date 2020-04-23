@@ -67,6 +67,10 @@ public:
   /// Does this instruction rename a GPR without modifying bits?
   static bool isGPRCopy(const MachineInstr &MI);
 
+#ifdef __FACEBOOK__
+  /// Return source operand if this instruction is a GPR copy.
+  static const MachineOperand *getGPRCopySrc(const MachineInstr &MI);
+#endif // __FACEBOOK__
   /// Does this instruction rename an FPR without modifying bits?
   static bool isFPRCopy(const MachineInstr &MI);
 

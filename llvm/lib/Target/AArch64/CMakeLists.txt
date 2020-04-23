@@ -70,6 +70,10 @@ add_llvm_target(AArch64CodeGen
   AArch64MacroFusion.cpp
   AArch64MIPeepholeOpt.cpp
   AArch64MCInstLower.cpp
+  #ifdef __FACEBOOK__
+  AArch64OdrCovInstrumentation.cpp
+  AArch64ObjCCallOpt.cpp
+  #endif
   AArch64PromoteConstant.cpp
   AArch64PBQPRegAlloc.cpp
   AArch64RegisterInfo.cpp
