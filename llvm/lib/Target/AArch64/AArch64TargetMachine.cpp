@@ -54,6 +54,9 @@
 #include <string>
 
 using namespace llvm;
+#ifdef __FACEBOOK__
+extern cl::opt<bool> ObjCCallOpt;
+#endif
 
 static cl::opt<bool> EnableCCMP("aarch64-enable-ccmp",
                                 cl::desc("Enable the CCMP formation pass"),
@@ -217,6 +220,9 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeAArch64Target() {
   initializeAArch64ExpandPseudoPass(*PR);
   initializeAArch64LoadStoreOptPass(*PR);
   initializeAArch64MIPeepholeOptPass(*PR);
+#ifdef __FACEBOOK__
+  initializeAArch64ObjCCallOptPass(*PR);
+#endif
   initializeAArch64SIMDInstrOptPass(*PR);
   initializeAArch64O0PreLegalizerCombinerPass(*PR);
   initializeAArch64PreLegalizerCombinerPass(*PR);
@@ -838,6 +844,11 @@ void AArch64PassConfig::addPreEmitPass() {
 void AArch64PassConfig::addPreEmitPass2() {
   // SVE bundles move prefixes with destructive operations. BLR_RVMARKER pseudo
   // instructions are lowered to bundles as well.
+#ifdef __FACEBOOK__
+  if (TM->getOptLevel() != CodeGenOpt::None && ObjCCallOpt)
+    addPass(createAArch64ObjCCallOptPass());
+#endif // __FACEBOOK__
+
   addPass(createUnpackMachineBundles(nullptr));
 }
 

@@ -2083,6 +2083,44 @@ bool AArch64InstrInfo::isGPRZero(const MachineInstr &MI) {
   return false;
 }
 
+#ifdef __FACEBOOK__
+// Return true if this instruction simply renames a general register without
+// modifying bits.
+bool AArch64InstrInfo::isGPRCopy(const MachineInstr &MI) {
+  return getGPRCopySrc(MI) != nullptr;
+}
+
+const MachineOperand *AArch64InstrInfo::getGPRCopySrc(const MachineInstr &MI) {
+  switch (MI.getOpcode()) {
+  default:
+    break;
+  case TargetOpcode::COPY: {
+    // GPR32 copies will by lowered to ORRXrs
+    unsigned DstReg = MI.getOperand(0).getReg();
+    if (AArch64::GPR32RegClass.contains(DstReg) ||
+        AArch64::GPR64RegClass.contains(DstReg))
+      return &MI.getOperand(1);
+    break;
+  }
+  case AArch64::ORRXrs: // orr Xd, Xzr, Xm (LSL #0)
+    if (MI.getOperand(1).getReg() == AArch64::XZR) {
+      assert(MI.getDesc().getNumOperands() == 4 &&
+             MI.getOperand(3).getImm() == 0 && "invalid ORRrs operands");
+      return &MI.getOperand(2);
+    }
+    break;
+  case AArch64::ADDXri: // add Xd, Xn, #0 (LSL #0)
+    if (MI.getOperand(2).isImm() && MI.getOperand(2).getImm() == 0) {
+      // This is a bug fix that should be upstreamed.
+      assert(MI.getDesc().getNumOperands() == 4 &&
+             MI.getOperand(3).getImm() == 0 && "invalid ADDXri operands");
+      return &MI.getOperand(1);
+    }
+    break;
+  }
+  return nullptr;
+}
+#else
 // Return true if this instruction simply renames a general register without
 // modifying bits.
 bool AArch64InstrInfo::isGPRCopy(const MachineInstr &MI) {
@@ -2142,6 +2180,7 @@ const MachineOperand *AArch64InstrInfo::getGPRCopySrc(const MachineInstr &MI) {
   return false;
 #endif
 }
+#endif
 
 // Return true if this instruction simply renames a general register without
 // modifying bits.
