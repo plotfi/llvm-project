@@ -56,6 +56,7 @@ add_llvm_target(AArch64CodeGen
   AArch64MachineFunctionInfo.cpp
   AArch64MacroFusion.cpp
   AArch64MCInstLower.cpp
+  AArch64LowerHomogeneousPrologEpilog.cpp
   AArch64PromoteConstant.cpp
   AArch64PBQPRegAlloc.cpp
   AArch64RegisterInfo.cpp

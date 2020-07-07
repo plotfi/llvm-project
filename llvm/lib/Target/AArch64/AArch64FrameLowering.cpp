@@ -175,6 +175,73 @@ static cl::opt<bool> StackTaggingMergeSetTag(
     cl::desc("merge settag instruction in function epilog"), cl::init(true),
     cl::Hidden);
 
+cl::opt<bool> EnableHomogeneousPrologEpilog(
+    "homogeneous-prolog-epilog", cl::init(false), cl::Hidden,
+    cl::desc("Emit homogeneous prologue and epilogue for the size "
+             "optimization (default = off)"));
+
+static bool produceCompactUnwindFrame(MachineFunction &MF);
+static bool needsWinCFI(const MachineFunction &MF);
+
+static uint64_t getArgumentPopSize(MachineFunction &MF,
+                                   MachineBasicBlock &MBB) {
+  MachineBasicBlock::iterator MBBI = MBB.getLastNonDebugInstr();
+  bool IsTailCallReturn = false;
+  if (MBB.end() != MBBI) {
+    unsigned RetOpcode = MBBI->getOpcode();
+    IsTailCallReturn = RetOpcode == AArch64::TCRETURNdi ||
+                       RetOpcode == AArch64::TCRETURNri ||
+                       RetOpcode == AArch64::TCRETURNriBTI;
+  }
+  AArch64FunctionInfo *AFI = MF.getInfo<AArch64FunctionInfo>();
+
+  uint64_t ArgumentPopSize = 0;
+  if (IsTailCallReturn) {
+    MachineOperand &StackAdjust = MBBI->getOperand(1);
+
+    // For a tail-call in a callee-pops-arguments environment, some or all of
+    // the stack may actually be in use for the call's arguments, this is
+    // calculated during LowerCall and consumed here...
+    ArgumentPopSize = StackAdjust.getImm();
+  } else {
+    // ... otherwise the amount to pop is *all* of the argument space,
+    // conveniently stored in the MachineFunctionInfo by
+    // LowerFormalArguments. This will, of course, be zero for the C calling
+    // convention.
+    ArgumentPopSize = AFI->getArgumentStackToRestore();
+  }
+
+  return ArgumentPopSize;
+}
+
+/// Returns true if a homogeneous prolog or epilog code can be emitted
+/// for the size optimization. If possible, a frame helper call is injected.
+/// When Exit block is given, this check is for epilog.
+bool AArch64FrameLowering::homogeneousPrologEpilog(
+    MachineFunction &MF, MachineBasicBlock *Exit) const {
+  if (!MF.getFunction().hasOptSize())
+    return false;
+  if (!EnableHomogeneousPrologEpilog)
+    return false;
+  if (ReverseCSRRestoreSeq)
+    return false;
+  if (EnableRedZone)
+    return false;
+  if (needsWinCFI(MF))
+    return false;
+  if (MF.getFrameInfo().hasVarSizedObjects())
+    return false;
+  if (MF.getSubtarget().getRegisterInfo()->needsStackRealignment(MF))
+    return false;
+  if (Exit && getArgumentPopSize(MF, *Exit))
+    return false;
+  return true;
+}
+
+bool AArch64FrameLowering::producePairRegisters(MachineFunction &MF) const {
+  return produceCompactUnwindFrame(MF) || homogeneousPrologEpilog(MF);
+}
+
 STATISTIC(NumRedZoneFunctions, "Number of functions using red zone");
 
 /// This is the biggest offset to the stack pointer we can encode in aarch64
@@ -472,6 +539,8 @@ bool AArch64FrameLowering::shouldCombineCSRLocalStackBump(
   const MachineFrameInfo &MFI = MF.getFrameInfo();
   const AArch64Subtarget &Subtarget = MF.getSubtarget<AArch64Subtarget>();
   const AArch64RegisterInfo *RegInfo = Subtarget.getRegisterInfo();
+  if (homogeneousPrologEpilog(MF))
+    return false;
 
   if (AFI->getLocalStackSize() == 0)
     return false;
@@ -1025,6 +1094,9 @@ void AArch64FrameLowering::emitPrologue(MachineFunction &MF,
                     {-NumBytes, MVT::i8}, TII, MachineInstr::FrameSetup, false,
                     NeedsWinCFI, &HasWinCFI);
     NumBytes = 0;
+  } else if (homogeneousPrologEpilog(MF)) {
+    // Stack has been already adjusted.
+    NumBytes -= PrologueSaveSize;
   } else if (PrologueSaveSize != 0) {
     MBBI = convertCalleeSaveRestoreToSPPrePostIncDec(
         MBB, MBBI, DL, TII, -PrologueSaveSize, NeedsWinCFI, &HasWinCFI);
@@ -1416,7 +1488,6 @@ void AArch64FrameLowering::emitEpilogue(MachineFunction &MF,
   const AArch64Subtarget &Subtarget = MF.getSubtarget<AArch64Subtarget>();
   const TargetInstrInfo *TII = Subtarget.getInstrInfo();
   DebugLoc DL;
-  bool IsTailCallReturn = false;
   bool NeedsWinCFI = needsWinCFI(MF);
   bool HasWinCFI = false;
   bool IsFunclet = false;
@@ -1427,10 +1498,6 @@ void AArch64FrameLowering::emitEpilogue(MachineFunction &MF,
 
   if (MBB.end() != MBBI) {
     DL = MBBI->getDebugLoc();
-    unsigned RetOpcode = MBBI->getOpcode();
-    IsTailCallReturn = RetOpcode == AArch64::TCRETURNdi ||
-                       RetOpcode == AArch64::TCRETURNri ||
-                       RetOpcode == AArch64::TCRETURNriBTI;
     IsFunclet = isFuncletReturnInstr(*MBBI);
   }
 
@@ -1445,21 +1512,7 @@ void AArch64FrameLowering::emitEpilogue(MachineFunction &MF,
 
   // Initial and residual are named for consistency with the prologue. Note that
   // in the epilogue, the residual adjustment is executed first.
-  uint64_t ArgumentPopSize = 0;
-  if (IsTailCallReturn) {
-    MachineOperand &StackAdjust = MBBI->getOperand(1);
-
-    // For a tail-call in a callee-pops-arguments environment, some or all of
-    // the stack may actually be in use for the call's arguments, this is
-    // calculated during LowerCall and consumed here...
-    ArgumentPopSize = StackAdjust.getImm();
-  } else {
-    // ... otherwise the amount to pop is *all* of the argument space,
-    // conveniently stored in the MachineFunctionInfo by
-    // LowerFormalArguments. This will, of course, be zero for the C calling
-    // convention.
-    ArgumentPopSize = AFI->getArgumentStackToRestore();
-  }
+  uint64_t ArgumentPopSize = getArgumentPopSize(MF, MBB);
 
   // The stack frame should be like below,
   //
@@ -1502,6 +1555,26 @@ void AArch64FrameLowering::emitEpilogue(MachineFunction &MF,
   // function.
   if (MF.hasEHFunclets())
     AFI->setLocalStackSize(NumBytes - PrologueSaveSize);
+  if (homogeneousPrologEpilog(MF, &MBB)) {
+    assert(!NeedsWinCFI);
+    auto LastPopI = MBB.getFirstTerminator();
+    if (LastPopI != MBB.begin()) {
+      auto HomogeneousEpilog = std::prev(LastPopI);
+      if (HomogeneousEpilog->getOpcode() == AArch64::HOM_Epilog)
+        LastPopI = HomogeneousEpilog;
+    }
+
+    // Adjust local stack
+    uint64_t LocalStackSize = AFI->getLocalStackSize();
+    emitFrameOffset(MBB, LastPopI, DL, AArch64::SP, AArch64::SP,
+                    {(int64_t)LocalStackSize, MVT::i8}, TII,
+                    MachineInstr::FrameDestroy, false, NeedsWinCFI);
+
+    // SP has been already adjusted while restoring callee save regs.
+    // We've bailed-out the case with adjusting SP for arguments.
+    assert(AfterCSRPopSize == 0);
+    return;
+  }
   bool CombineSPBump = shouldCombineCSRLocalStackBumpInEpilogue(MBB, NumBytes);
   // Assume we can't combine the last pop with the sp restore.
 
@@ -2165,6 +2238,22 @@ bool AArch64FrameLowering::spillCalleeSavedRegisters(
     MBB.addLiveIn(AArch64::X18);
   }
 
+  if (homogeneousPrologEpilog(MF)) {
+    auto MIB = BuildMI(MBB, MI, DL, TII.get(AArch64::HOM_Prolog))
+                   .setMIFlag(MachineInstr::FrameSetup);
+
+    for (auto &RPI : RegPairs) {
+      MIB.addReg(RPI.Reg1, RegState::Implicit);
+      MIB.addReg(RPI.Reg2, RegState::Implicit);
+
+      // Update register live in.
+      if (!MRI.isReserved(RPI.Reg1))
+        MBB.addLiveIn(RPI.Reg1);
+      if (!MRI.isReserved(RPI.Reg2))
+        MBB.addLiveIn(RPI.Reg2);
+    }
+    return true;
+  }
   for (auto RPII = RegPairs.rbegin(), RPIE = RegPairs.rend(); RPII != RPIE;
        ++RPII) {
     RegPairInfo RPI = *RPII;
@@ -2360,6 +2449,14 @@ bool AArch64FrameLowering::restoreCalleeSavedRegisters(
     for (const RegPairInfo &RPI : reverse(RegPairs))
       if (!RPI.isScalable())
         EmitMI(RPI);
+  } else if (homogeneousPrologEpilog(MF, &MBB)) {
+    auto MIB = BuildMI(MBB, MI, DL, TII.get(AArch64::HOM_Epilog))
+                   .setMIFlag(MachineInstr::FrameDestroy);
+    for (auto &RPI : RegPairs) {
+      MIB.addReg(RPI.Reg1, RegState::Implicit | RegState::Define);
+      MIB.addReg(RPI.Reg2, RegState::Implicit | RegState::Define);
+    }
+    return true;
   } else
     for (const RegPairInfo &RPI : RegPairs)
       if (!RPI.isScalable())
@@ -2429,7 +2526,7 @@ void AArch64FrameLowering::determineCalleeSaves(MachineFunction &MF,
     // MachO's compact unwind format relies on all registers being stored in
     // pairs.
     // FIXME: the usual format is actually better if unwinding isn't needed.
-    if (produceCompactUnwindFrame(MF) && PairedReg != AArch64::NoRegister &&
+    if (producePairRegisters(MF) && PairedReg != AArch64::NoRegister &&
         !SavedRegs.test(PairedReg)) {
       SavedRegs.set(PairedReg);
       if (AArch64::GPR64RegClass.contains(PairedReg) &&
@@ -2508,7 +2605,7 @@ void AArch64FrameLowering::determineCalleeSaves(MachineFunction &MF,
       // MachO's compact unwind format relies on all registers being stored in
       // pairs, so if we need to spill one extra for BigStack, then we need to
       // store the pair.
-      if (produceCompactUnwindFrame(MF))
+      if (producePairRegisters(MF))
         SavedRegs.set(UnspilledCSGPRPaired);
       ExtraCSSpill = UnspilledCSGPR;
     }

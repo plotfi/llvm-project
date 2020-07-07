@@ -161,6 +161,8 @@ static cl::opt<bool>
                         cl::desc("Enable the AAcrh64 branch target pass"),
                         cl::init(true));
 
+extern cl::opt<bool> EnableHomogeneousPrologEpilog;
+
 extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeAArch64Target() {
   // Register the target.
   RegisterTargetMachine<AArch64leTargetMachine> X(getTheAArch64leTarget());
@@ -195,6 +197,7 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeAArch64Target() {
   initializeAArch64SLSHardeningPass(*PR);
   initializeAArch64StackTaggingPass(*PR);
   initializeAArch64StackTaggingPreRAPass(*PR);
+  initializeAArch64LowerHomogeneousPrologEpilogPass(*PR);
 }
 
 //===----------------------------------------------------------------------===//
@@ -621,6 +624,9 @@ void AArch64PassConfig::addPostRegAlloc() {
 }
 
 void AArch64PassConfig::addPreSched2() {
+  // Lower homogeneous frame instructions
+  if (EnableHomogeneousPrologEpilog)
+    addPass(createAArch64LowerHomogeneousPrologEpilogPass());
   // Expand some pseudo instructions to allow proper scheduling.
   addPass(createAArch64ExpandPseudoPass());
   // Use load/store pair instructions when possible.
