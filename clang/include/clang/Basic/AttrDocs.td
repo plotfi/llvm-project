@@ -4074,6 +4074,16 @@ overheads associated with defining and calling such a method.
   }];
 }
 
+def ObjCHashMethodNameDocs : Documentation {
+  let Category = DocCatDecl;
+  let Content = [{
+The ``objc_hash_method_name`` attribute can be used to mark an Objective-C
+method for selector name hashing. This is useful for reducing codesize caused by
+extremely long method selector names in cases where dynamic dispatch is still
+desired.
+  }];
+}
+
 def ObjCDirectDocs : Documentation {
   let Category = DocCatDecl;
   let Content = [{

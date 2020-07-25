@@ -1974,6 +1974,13 @@ def ObjCDesignatedInitializer : Attr {
   let Documentation = [Undocumented];
 }
 
+def ObjCHashMethodName : Attr {
+  let Spellings = [Clang<"objc_hash_method_name">];
+  let Subjects = SubjectList<[ObjCMethod], ErrorDiag>;
+  let LangOpts = [ObjC];
+  let Documentation = [ObjCHashMethodNameDocs];
+}
+
 def ObjCDirect : Attr {
   let Spellings = [Clang<"objc_direct">];
   let Subjects = SubjectList<[ObjCMethod], ErrorDiag>;

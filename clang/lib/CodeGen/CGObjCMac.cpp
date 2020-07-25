@@ -2143,6 +2143,28 @@ static bool isWeakLinkedClass(const ObjCInterfaceDecl *ID) {
   return false;
 }
 
+static void renameSelector(llvm::GlobalVariable &GV) {
+  auto *OldInit = cast<llvm::ConstantDataArray>(GV.getInitializer());
+
+  StringRef Name = OldInit->getAsString();
+  uint64_t Hash = MD5Hash(Name);
+  size_t Arity = std::count(Name.begin(), Name.end(), ':');
+  std::string HashedName = llvm::to_string(llvm::format_hex_no_prefix(Hash, 1));
+  HashedName.append(Arity, ':');
+
+  llvm::Module &M = *GV.getParent();
+  auto *Init = llvm::ConstantDataArray::getString(M.getContext(), HashedName);
+
+  auto *NGV = new llvm::GlobalVariable(
+      M, Init->getType(), GV.isConstant(), GV.getLinkage(), Init, GV.getName(),
+      nullptr /* InsertBefore */, GV.getThreadLocalMode(),
+      GV.getType()->getAddressSpace(), GV.isExternallyInitialized());
+  NGV->copyAttributesFrom(&GV);
+
+  GV.replaceAllUsesWith(llvm::ConstantExpr::getBitCast(NGV, GV.getType()));
+  GV.eraseFromParent();
+}
+
 CodeGen::RValue
 CGObjCCommonMac::EmitMessageSend(CodeGen::CodeGenFunction &CGF,
                                  ReturnValueSlot Return,
@@ -2167,6 +2189,28 @@ CGObjCCommonMac::EmitMessageSend(CodeGen::CodeGenFunction &CGF,
   } else {
     SelValue = GetSelector(CGF, Sel);
   }
+
+  // If this ObjCMethodDecl is marked as unnamed, set an attribute on its
+  // selector so that the backend can know it can rename the selector name if
+  // it that is specified by some backend pass.
+  if (Method && Method->hasAttr<ObjCHashMethodNameAttr>())
+    [](llvm::Value *SelValue) {
+      const auto *LI = dyn_cast<llvm::LoadInst>(SelValue);
+      if (!LI || !LI->getNumOperands())
+        return;
+      const auto *SelRef = dyn_cast<llvm::GlobalVariable>(LI->getOperand(0));
+      if (!SelRef || !SelRef->getNumOperands())
+        return;
+      const auto *GEP = dyn_cast<llvm::ConstantExpr>(SelRef->getOperand(0));
+      if (!GEP || !GEP->getNumOperands())
+        return;
+      auto *GV = dyn_cast<llvm::GlobalVariable>(GEP->getOperand(0));
+      if (!GV || GV->hasAttribute("objc_selector_unnamed"))
+        return;
+
+      ::renameSelector(*GV);
+
+    }(SelValue);
 
   CallArgList ActualArgs;
   if (!IsSuper)
