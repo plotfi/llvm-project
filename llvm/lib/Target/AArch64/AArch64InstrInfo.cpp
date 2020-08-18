@@ -2063,31 +2063,61 @@ bool AArch64InstrInfo::isGPRZero(const MachineInstr &MI) {
 // Return true if this instruction simply renames a general register without
 // modifying bits.
 bool AArch64InstrInfo::isGPRCopy(const MachineInstr &MI) {
+#ifdef __FACEBOOK__
+  return getGPRCopySrc(MI) != nullptr;
+}
+
+const MachineOperand *AArch64InstrInfo::getGPRCopySrc(const MachineInstr &MI) {
+#endif
   switch (MI.getOpcode()) {
   default:
     break;
   case TargetOpcode::COPY: {
     // GPR32 copies will by lowered to ORRXrs
     Register DstReg = MI.getOperand(0).getReg();
+#ifdef __FACEBOOK__
+    if (AArch64::GPR32RegClass.contains(DstReg) ||
+        AArch64::GPR64RegClass.contains(DstReg))
+      return &MI.getOperand(1);
+    break;
+#else
     return (AArch64::GPR32RegClass.contains(DstReg) ||
             AArch64::GPR64RegClass.contains(DstReg));
+#endif
   }
   case AArch64::ORRXrs: // orr Xd, Xzr, Xm (LSL #0)
     if (MI.getOperand(1).getReg() == AArch64::XZR) {
       assert(MI.getDesc().getNumOperands() == 4 &&
              MI.getOperand(3).getImm() == 0 && "invalid ORRrs operands");
+#ifdef __FACEBOOK__
+      return &MI.getOperand(2);
+#else
       return true;
+#endif
     }
     break;
   case AArch64::ADDXri: // add Xd, Xn, #0 (LSL #0)
+#ifdef __FACEBOOK__
+    if (MI.getOperand(2).isImm() && MI.getOperand(2).getImm() == 0) {
+      // This is a bug fix that should be upstreamed.
+#else
     if (MI.getOperand(2).getImm() == 0) {
+#endif // __FACEBOOK__
       assert(MI.getDesc().getNumOperands() == 4 &&
              MI.getOperand(3).getImm() == 0 && "invalid ADDXri operands");
+#ifdef __FACEBOOK__
+      return &MI.getOperand(1);
+#else
       return true;
+#endif
     }
     break;
   }
+#ifdef __FACEBOOK__
+  return nullptr;
+#else
   return false;
+#endif
 }
 
 // Return true if this instruction simply renames a general register without
@@ -7225,8 +7255,13 @@ outliner::OutlinedFunction AArch64InstrInfo::getOutliningCandidateInfo(
     llvm::erase_if(RepeatedSequenceLocs, CantGuaranteeValueAcrossCall);
 
     // If the sequence doesn't have enough candidates left, then we're done.
+#ifdef __FACEBOOK__
+    if (RepeatedSequenceLocs.size() == 0)
+      return outliner::OutlinedFunction();
+#else
     if (RepeatedSequenceLocs.size() < 2)
       return outliner::OutlinedFunction();
+#endif
   }
 
   // At this point, we have only "safe" candidates to outline. Figure out
@@ -7463,10 +7498,16 @@ outliner::OutlinedFunction AArch64InstrInfo::getOutliningCandidateInfo(
     }
 
     // If we dropped all of the candidates, bail out here.
+#ifdef __FACEBOOK__
+    if (RepeatedSequenceLocs.size() == 0) {
+      return outliner::OutlinedFunction();
+    }
+#else
     if (RepeatedSequenceLocs.size() < 2) {
       RepeatedSequenceLocs.clear();
       return outliner::OutlinedFunction();
     }
+#endif // __FACEBOOK__
   }
 
   // Does every candidate's MBB contain a call? If so, then we might have a call
@@ -7660,6 +7701,13 @@ AArch64InstrInfo::getOutliningType(MachineBasicBlock::iterator &MIT,
     // It's not, so don't outline it.
     return outliner::InstrType::Illegal;
   }
+#ifdef __FACEBOOK__
+  // Don't outline ARC call marker implemented via an InlineAsm NOP
+  // with a side-effect -- getARCRetainAutoreleasedReturnValueMarker.
+  // If this is outlined, ARC runtime may not find the subsequent release call.
+  if (MI.isInlineAsm() && MI.hasUnmodeledSideEffects())
+    return outliner::InstrType::Illegal;
+#endif
 
   // Make sure none of the operands are un-outlinable.
   for (const MachineOperand &MOP : MI.operands()) {

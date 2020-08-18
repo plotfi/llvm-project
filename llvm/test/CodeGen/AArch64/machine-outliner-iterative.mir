@@ -133,7 +133,7 @@ body:             |
 
 ...
 
-# TWO-RUNS: name:            OUTLINED_FUNCTION_2_0
+# TWO-RUNS: name:            OUTLINED_FUNCTION_2_2
 # TWO-RUNS-DAG: bb.0:
 # TWO-RUNS-DAG: renamable $x19 = COPY $x0
 # TWO-RUNS-NEXT: renamable $x0 = nuw ADDXri $x0, 48, 0
