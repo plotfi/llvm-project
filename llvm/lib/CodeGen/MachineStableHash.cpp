@@ -97,9 +97,31 @@ stable_hash llvm::stableHashValue(const MachineOperand &MO) {
   case MachineOperand::MO_Metadata:
     StableHashBailingMetadataUnsupported++;
     return 0;
+#ifndef __FACEBOOK__
   case MachineOperand::MO_GlobalAddress:
     StableHashBailingGlobalAddress++;
     return 0;
+#else
+  case MachineOperand::MO_GlobalAddress: {
+    const GlobalValue *GV = MO.getGlobal();
+    if (GV->hasPrivateLinkage() || !GV->hasName()) {
+      StableHashBailingGlobalAddress++;
+      return 0;
+    }
+    auto Name = GV->getName();
+    if (Name.startswith("OUTLINED_FUNCTION_")) {
+      // Outlined function name contains thread count and local sequence number
+      // followed by 64 bit (hex) stable hash number to be unique.
+      // Hashing the last 16 byte character instead of the entire name increases
+      // the chance of matching the same functions.
+      if (isDigit(Name[strlen("OUTLINED_FUNCTION_")])) {
+        Name = Name.take_back(16);
+      }
+    }
+    return hash_combine(MO.getType(), MO.getTargetFlags(),
+                        stable_hash_combine_string(Name), MO.getOffset());
+  }
+#endif
   case MachineOperand::MO_TargetIndex: {
     if (const char *Name = MO.getTargetIndexName())
       return stable_hash_combine(MO.getType(), MO.getTargetFlags(),

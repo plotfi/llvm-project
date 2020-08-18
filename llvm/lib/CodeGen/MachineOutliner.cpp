@@ -75,7 +75,14 @@
 #include "llvm/Support/SuffixTree.h"
 #include "llvm/Support/raw_ostream.h"
 #include <functional>
+#ifdef __FACEBOOK__
+#include <iomanip>
+#include <sstream>
+#endif
 #include <tuple>
+#ifdef __FACEBOOK__
+#include <unordered_map>
+#endif
 #include <vector>
 
 #define DEBUG_TYPE "machine-outliner"
@@ -87,6 +94,48 @@ using namespace outliner;
 // Statistics for outlined functions.
 STATISTIC(NumOutlined, "Number of candidates outlined");
 STATISTIC(FunctionsCreated, "Number of functions created");
+#ifdef __FACEBOOK__
+#include "llvm/CodeGen/MachineStableHash.h"
+#include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/CodeGen/MachineOutlinerGlobal.h"
+STATISTIC(
+    NumOutlinedWithNoResidualCodeCosts,
+    "Number of candidates outlined that are also outlined in another module");
+STATISTIC(NumOutlinedWithNoResidualCodeCostOverrides,
+          "Number of candidates outlined due to no residual cost as candidate "
+          "is also outlined in another module");
+STATISTIC(NumOutlinedSingletons,
+          "Number of singleton candidates outlined due to no residual cost as "
+          "candidate is also outlined in another module");
+
+STATISTIC(HashesComputed, "Number of hashing attempts for outlined functions");
+STATISTIC(HashesDropped,
+          "Number of failed hashing attempts for outlined functions");
+STATISTIC(NumOutlineesOrdered, "Number of outlinees that are ordered");
+
+static cl::opt<bool>
+    OrderOutlinedFunctions("order-outlined-functions", cl::init(true),
+                           cl::Hidden,
+                           cl::desc("Order outlined functions next to their "
+                                    "host functions (default = on)"));
+
+cl::opt<std::string> OutlinerHashTreeMode(
+    "outliner-hash-tree-mode", cl::init(""), cl::Hidden,
+    cl::desc("Outliner Hash Tree mode < none | write | read >. Anything but "
+             "'read' or 'write' mode will disable all functionality and this "
+             "is the default. In write mode, the outliner will collect hashes "
+             "of the candidate sequences in a HashTree and write the tree to "
+             "disk. In read mode, the outliner will read a provided HashTree "
+             "from disk and use the tree to aid in adjusting the threshold for "
+             "consideration of a candidate when it is present in "
+             "the HashTree loaded from disk but only occurs once in a given "
+             "module."));
+
+static cl::opt<std::string> OutlinerHashTreeFilename(
+    "outliner-hash-tree-filename", cl::init("OutlinerHashTree.out"), cl::Hidden,
+    cl::desc("Outliner Hash Tree file name written to or read from when using "
+             "-outliner-hash-tree-mode."));
+#endif // __FACEBOOK__
 
 // Statistics for instruction mapping.
 STATISTIC(NumLegalInUnsignedVec, "Outlinable instructions mapped");
@@ -410,6 +459,16 @@ struct MachineOutliner : public ModulePass {
   /// Set to true by default for compatibility with llc's -run-pass option.
   /// Set when the pass is constructed in TargetPassConfig.
   bool RunOnAllFunctions = true;
+#ifdef __FACEBOOK__
+  /// Number to append to the current outlined function, per combined
+  /// stable-hash of the outlined instruction sequence.
+  std::unordered_map<stable_hash, unsigned> OutlinedFunctionNums;
+
+  /// StableHashTree of the outlined instruction sequences.
+  /// If UseSingletonMachineOutlinerHashTree is set, this is a singleton
+  /// instance meaning that we are doing global outlining.
+  StableHashTree OutlinerHashTree;
+#endif
 
   StringRef getPassName() const override { return "Machine Outliner"; }
 
@@ -461,6 +520,9 @@ struct MachineOutliner : public ModulePass {
   /// Creates a function for \p OF and inserts it into the module.
   MachineFunction *createOutlinedFunction(Module &M, OutlinedFunction &OF,
                                           InstructionMapper &Mapper,
+#ifdef __FACEBOOK__
+                                          stable_hash StableHash,
+#endif
                                           unsigned Name);
 
   /// Calls 'doOutline()' 1 + OutlinerReruns times.
@@ -469,6 +531,11 @@ struct MachineOutliner : public ModulePass {
   /// Construct a suffix tree on the instructions in \p M and outline repeated
   /// strings from that tree.
   bool doOutline(Module &M, unsigned &OutlinedFunctionNum);
+
+#ifdef __FACEBOOK__
+  bool internalRunOnModule(Module &M);
+  void orderOutlinedFunctions(Module &M);
+#endif
 
   /// Return a DISubprogram for OF if one exists, and null otherwise. Helper
   /// function for remark emission.
@@ -639,6 +706,11 @@ void MachineOutliner::findCandidates(
       MachineBasicBlock::iterator StartIt = Mapper.InstrList[StartIdx];
       MachineBasicBlock::iterator EndIt = Mapper.InstrList[EndIdx];
       MachineBasicBlock *MBB = StartIt->getParent();
+#ifdef __FACEBOOK__
+        // Don't create an outline candidate if a perf constraint is applied.
+        if (!outliner::allowOutline(*MBB))
+          continue;
+#endif
       CandidatesForRepeatedSeq.emplace_back(StartIdx, StringLen, StartIt, EndIt,
                                             MBB, FunctionList.size(),
                                             Mapper.MBBFlagsMap[MBB]);
@@ -649,10 +721,22 @@ void MachineOutliner::findCandidates(
     LLVM_DEBUG(dbgs() << "    Candidates kept: " << NumKept << "\n\n");
 #endif
 
+#ifdef __FACEBOOK__
+    bool NoResidualCodeCost = false;
+    bool NoResidualCodeCostOverride = false;
+    std::vector<stable_hash> StableHashSequence;
+    std::tie(NoResidualCodeCost, NoResidualCodeCostOverride,
+             StableHashSequence) =
+        getResidualCodeCosts(CandidatesForRepeatedSeq, OutlinerHashTree);
+#endif
+
     // We've found something we might want to outline.
     // Create an OutlinedFunction to store it and check if it'd be beneficial
     // to outline.
     if (CandidatesForRepeatedSeq.size() < 2)
+#ifdef __FACEBOOK__
+      if (!NoResidualCodeCostOverride)
+#endif
       continue;
 
     // Arbitrarily choose a TII from the first candidate.
@@ -663,32 +747,87 @@ void MachineOutliner::findCandidates(
     std::optional<OutlinedFunction> OF =
         TII->getOutliningCandidateInfo(CandidatesForRepeatedSeq);
 
+#ifdef __FACEBOOK__
+    // Should we override the next check because of NoResidualCodeCost?
+    if (NoResidualCodeCost && OF.Candidates.size() == 1)
+      NoResidualCodeCostOverride = true;
+#endif
     // If we deleted too many candidates, then there's nothing worth outlining.
     // FIXME: This should take target-specified instruction sizes into account.
     if (!OF || OF->Candidates.size() < 2)
+#ifdef __FACEBOOK__
+      if (!NoResidualCodeCostOverride || OF.Candidates.size() == 0)
+#endif
       continue;
 
+#ifdef __FACEBOOK__
+    // Should we override the next check because of NoResidualCodeCost?
+    if (OF.getBenefit() < 1 && NoResidualCodeCost) {
+      // Outlining isn't beneficial just in this module, but we know that we
+      // don't actually have to account for the cost of the outlined function.
+      // Mark this as such, which affects the benefit computation.
+      OF.NoResidualCodeCost = true;
+      if (OF.getBenefit() >= 1) {
+        NoResidualCodeCostOverride = true;
+      }
+    }
+#endif
     // Is it better to outline this candidate than not?
     if (OF->getBenefit() < OutlinerBenefitThreshold) {
       emitNotOutliningCheaperRemark(StringLen, CandidatesForRepeatedSeq, *OF);
       continue;
     }
 
+#ifdef __FACEBOOK__
+    OF.StableHashSequence = StableHashSequence;
+    OF.NoResidualCodeCost = NoResidualCodeCost;
+    OF.NoResidualCodeCostOverride = NoResidualCodeCostOverride;
+#endif
     FunctionList.push_back(*OF);
   }
+#ifdef __FACEBOOK__
+  if (getMode() == HashTreeMode::UsingHashTree)
+    findSingletonCandidatesFromHashTree(
+        ST, Mapper.InstrList, Mapper.MBBFlagsMap, Mapper.UnsignedVec,
+        FunctionList, OutlinerHashTree);
+#endif
 }
 
 MachineFunction *MachineOutliner::createOutlinedFunction(
+#ifdef __FACEBOOK__
+    Module &M, OutlinedFunction &OF, InstructionMapper &Mapper,
+    stable_hash StableHash, unsigned Name) {
+#else
     Module &M, OutlinedFunction &OF, InstructionMapper &Mapper, unsigned Name) {
+#endif
 
   // Create the function name. This should be unique.
   // FIXME: We should have a better naming scheme. This should be stable,
   // regardless of changes to the outliner's cost model/traversal order.
+#ifdef __FACEBOOK__
+  std::ostringstream NameStream;
+  NameStream << "OUTLINED_FUNCTION_";
+  int ThinLTOCount = (int)M.getThinLTOCount();
+  bool ApplyODR = EnableLinkOnceODROutlining && (ThinLTOCount != -1);
+  if (ApplyODR) {
+    // Append unique ThinLTOCount per thread under ThinLTO
+    NameStream << ThinLTOCount << "_";
+  }
+  if (OutlineRepeatedNum > 0)
+    NameStream << std::to_string(OutlineRepeatedNum + 1) << "_";
+  NameStream << Name;
+  if (StableHash)
+    NameStream << "_" << std::setfill('0') << std::setw(16) << std::hex
+               << StableHash;
+  std::string FunctionName = NameStream.str();
+  LLVM_DEBUG(dbgs() << "NEW FUNCTION: " << FunctionName << "\n");
+#else
   std::string FunctionName = "OUTLINED_FUNCTION_";
   if (OutlineRepeatedNum > 0)
     FunctionName += std::to_string(OutlineRepeatedNum + 1) + "_";
   FunctionName += std::to_string(Name);
   LLVM_DEBUG(dbgs() << "NEW FUNCTION: " << FunctionName << "\n");
+#endif
 
   // Create the function using an IR-level function.
   LLVMContext &C = M.getContext();
@@ -698,6 +837,11 @@ MachineFunction *MachineOutliner::createOutlinedFunction(
   // NOTE: If this is linkonceodr, then we can take advantage of linker deduping
   // which gives us better results when we outline from linkonceodr functions.
   F->setLinkage(GlobalValue::InternalLinkage);
+
+#ifdef __FACEBOOK__
+  if (ApplyODR)
+    F->setLinkage(GlobalValue::LinkOnceODRLinkage);
+#endif
   F->setUnnamedAddr(GlobalValue::UnnamedAddr::Global);
 
   // Set optsize/minsize, so we don't insert padding between outlined
@@ -835,6 +979,14 @@ bool MachineOutliner::outline(Module &M,
                 return LHS.getBenefit() > RHS.getBenefit();
               });
 
+#ifdef __FACEBOOK__
+  std::vector<std::vector<stable_hash>> ModuleStableHashSequences;
+  size_t ModuleComputedHashes{0};
+  size_t ModuleDroppedHashes{0};
+  size_t ModuleNumOutlinedWithNoResidualCodeCosts{0};
+  size_t ModuleNumOutlinedWithNoResidualCodeCostOverrides{0};
+  size_t ModuleNumOutlinedSingletons{0};
+#endif
   // Walk over each function, outlining them as we go along. Functions are
   // outlined greedily, based off the sort above.
   auto *UnsignedVecBegin = Mapper.UnsignedVec.begin();
@@ -872,10 +1024,30 @@ bool MachineOutliner::outline(Module &M,
 
     // It's beneficial. Create the function and outline its sequence's
     // occurrences.
+#ifdef __FACEBOOK__
+    stable_hash CombinedStableHash = 0;
+    if (OF.StableHashSequence.size() > 0) {
+      CombinedStableHash = stable_hash_combine_range(
+          OF.StableHashSequence.begin(), OF.StableHashSequence.end());
+    }
+    if (getMode() == HashTreeMode::BuildingHashTree) {
+      ModuleComputedHashes++;
+      if (OF.StableHashSequence.size() > 0)
+        ModuleStableHashSequences.push_back(OF.StableHashSequence);
+      else
+        ModuleDroppedHashes++;
+    }
+    unsigned OutlinedFunctionNum = OutlinedFunctionNums[CombinedStableHash]++;
+    OF.MF = createOutlinedFunction(M, OF, Mapper, CombinedStableHash,
+                                   OutlinedFunctionNum);
+#else
     OF.MF = createOutlinedFunction(M, OF, Mapper, OutlinedFunctionNum);
+#endif
     emitOutlinedFunctionRemark(OF);
     FunctionsCreated++;
+#ifndef __FACEBOOK__
     OutlinedFunctionNum++; // Created a function, move to the next name.
+#endif
     MachineFunction *MF = OF.MF;
     const TargetSubtargetInfo &STI = MF->getSubtarget();
     const TargetInstrInfo &TII = *STI.getInstrInfo();
@@ -974,8 +1146,29 @@ bool MachineOutliner::outline(Module &M,
 
       // Statistics.
       NumOutlined++;
+#ifdef __FACEBOOK__
+      if (OF.NoResidualCodeCost)
+        ModuleNumOutlinedWithNoResidualCodeCosts++;
+      if (OF.NoResidualCodeCostOverride)
+        ModuleNumOutlinedWithNoResidualCodeCostOverrides++;
+      if (OF.Singleton)
+        ModuleNumOutlinedSingletons++;
+#endif
     }
   }
+#ifdef __FACEBOOK__
+  if (getMode() == HashTreeMode::BuildingHashTree) {
+    HashesComputed += ModuleComputedHashes;
+    HashesDropped += ModuleDroppedHashes;
+    OutlinerHashTree.insert(ModuleStableHashSequences);
+  }
+  NumOutlinedWithNoResidualCodeCosts +=
+      ModuleNumOutlinedWithNoResidualCodeCosts;
+  NumOutlinedWithNoResidualCodeCostOverrides +=
+      ModuleNumOutlinedWithNoResidualCodeCostOverrides;
+  NumOutlinedSingletons += ModuleNumOutlinedSingletons;
+
+#endif
 
   LLVM_DEBUG(dbgs() << "OutlinedSomething = " << OutlinedSomething << "\n";);
   return OutlinedSomething;
@@ -1127,6 +1320,19 @@ bool MachineOutliner::runOnModule(Module &M) {
   // nothing to outline.
   if (M.empty())
     return false;
+#ifdef __FACEBOOK__
+  bool OutlinedSomething = false;
+
+  if (internalRunOnModule(M))
+    OutlinedSomething = true;
+
+  orderOutlinedFunctions(M);
+
+  return OutlinedSomething;
+}
+
+bool MachineOutliner::internalRunOnModule(Module &M) {
+#endif
 
   // Number to append to the current outlined function.
   unsigned OutlinedFunctionNum = 0;
@@ -1211,3 +1417,82 @@ bool MachineOutliner::doOutline(Module &M, unsigned &OutlinedFunctionNum) {
 
   return OutlinedSomething;
 }
+#ifdef __FACEBOOK__
+void MachineOutliner::orderOutlinedFunctions(Module &M) {
+  OrderFileSummary *OrderSummary = MIRProfileSummary::getOrderFileSummary();
+  // No interest if there is no order file symbol.
+  if (!OrderSummary->hasOrderFileSymbols())
+    return;
+
+  // Do not order outlined functions in the first pass of global outlining.
+  if (getMode() == HashTreeMode::BuildingHashTree)
+    return;
+
+  MachineModuleInfo &MMI = getAnalysis<MachineModuleInfoWrapperPass>().getMMI();
+  unsigned ThreadId = M.getThinLTOCount();
+  for (auto &F : M) {
+    if (F.isDeclaration())
+      continue;
+    std::string CallerName = OrderFileSummary::getMangledSymbol(&F);
+
+    // Register the given promoted symbol by linking it to its root symbol.
+    // This is required because only the root symbol is tracked in the order
+    // vector. Conservatively all the promoted symbols belonging to the same
+    // root symbol are grouped together. They all will appear in the final order
+    // list to the linker. In fact, this update should be done regardless of
+    // outlining, but the actual duplication of promoted symbols are not that
+    // frequent, and ordering outlined symbols are far more important, so
+    // integerate this logic inside the current outliner pass for simplicity.
+    CallerName = OrderSummary->registerPromotedSymbol(CallerName);
+    if (CallerName.empty())
+      continue;
+
+    if (!OrderOutlinedFunctions)
+      continue;
+
+    // If the name is internal and not unique, we can't order them.
+    if (!EnableLinkOnceODROutlining)
+      continue;
+
+    // Skip functions that are not in the order file.
+    if (!OrderSummary->isOrderFileSymbol(CallerName))
+      continue;
+    MachineFunction *MF = MMI.getMachineFunction(F);
+    if (!MF)
+      continue;
+
+    // Order outlined functions in the order of their call sites appearing in
+    // the machine IR. Append the outlined functions to their caller with a
+    // thread Id while allowing duplication. The final order will be laid with
+    // deduplication on publishFinalOrderedSymbols.
+
+    DenseMap<MachineBasicBlock *, bool> BlkCovMap;
+    if (auto Summary = MIRProfileSummary::get()) {
+      Summary->getBlockCoverageMap(MF, BlkCovMap);
+    }
+    for (auto &MBB : *MF) {
+      // Skip ordering outlinees if the block is not covered/executed.
+      if (BlkCovMap.count(&MBB) && !BlkCovMap[&MBB])
+        continue;
+
+      for (auto &MI : MBB) {
+        if (!MI.isCall())
+          continue;
+        const Function *Callee = nullptr;
+        for (const MachineOperand &MOP : MI.operands()) {
+          if (MOP.isGlobal()) {
+            Callee = dyn_cast<Function>(MOP.getGlobal());
+            break;
+          }
+        }
+        if (!Callee || !Callee->getName().startswith("OUTLINED_FUNCTION"))
+          continue;
+        std::string CalleeName = OrderFileSummary::getMangledSymbol(Callee);
+        OrderSummary->addOutlinedFunctionSymbol(CallerName, ThreadId,
+                                                CalleeName);
+        ++NumOutlineesOrdered;
+      }
+    }
+  }
+}
+#endif

@@ -1,0 +1,77 @@
+# RUN: llc -run-pass=machine-outliner -enable-machine-outliner -verify-machineinstrs %s -o - | FileCheck %s
+--- |
+  target datalayout = "e-m:o-i64:64-i128:128-n32:64-S128"
+  target triple = "arm64-apple-ios9.0.0"
+
+  define void @foo(i8**, i8*) #0  {
+    ret void
+  }
+  define void @hoo(i8**, i8*) #0  {
+    ret void
+  }
+  define void @bar(i8**, i8*) #0  {
+    ret void
+  }
+
+  declare i8* @objc_storeWeak(i8**, i8*)
+  declare i8* @objc_retainAutoreleasedReturnValue(i8*)
+  declare i8* @objc_msgSend(i8*, i8*, ...)
+
+  attributes #0 = { minsize optsize ssp uwtable noredzone }
+...
+---
+
+name:            foo
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $x0, $x1, $lr
+    early-clobber $sp = frame-setup STPXpre killed $fp, killed $lr, $sp, 2
+  bb.1:
+    liveins: $x0, $x1
+    BL @objc_storeWeak, csr_aarch64_aapcs, implicit-def dead $lr, implicit $sp, implicit $x0, implicit $x1, implicit-def $sp, implicit-def $x0
+    INLINEASM &"mov\09fp, fp\09\09// marker for objc_retainAutoreleaseReturnValue", 1
+    BL @objc_retainAutoreleasedReturnValue, csr_aarch64_aapcs, implicit-def dead $lr, implicit $sp, implicit $x0, implicit-def $sp, implicit-def $x0
+  bb.2:
+    liveins: $x0
+    $fp, $lr = LDPXi $sp, 2
+    RET undef $lr
+...
+---
+
+name:            hoo
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $x0, $x1, $lr
+    early-clobber $sp = frame-setup STPXpre killed $fp, killed $lr, $sp, 2
+  bb.1:
+    liveins: $x0, $x1
+    BL @objc_msgSend, csr_aarch64_aapcs, implicit-def dead $lr, implicit $sp, implicit $x0, implicit $x1, implicit-def $sp, implicit-def $x0
+    INLINEASM &"mov\09fp, fp\09\09// marker for objc_retainAutoreleaseReturnValue", 1
+    BL @objc_retainAutoreleasedReturnValue, csr_aarch64_aapcs, implicit-def dead $lr, implicit $sp, implicit $x0, implicit-def $sp, implicit-def $x0
+  bb.2:
+    liveins: $x0
+    $fp, $lr = LDPXi $sp, 2
+    RET undef $lr
+...
+---
+
+name:            bar
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $x0, $x1, $lr
+    early-clobber $sp = frame-setup STPXpre killed $fp, killed $lr, $sp, 2
+  bb.1:
+    liveins: $x0, $x1
+    BL @objc_msgSend, csr_aarch64_aapcs, implicit-def dead $lr, implicit $sp, implicit $x0, implicit $x1, implicit-def $sp, implicit-def $x0
+    INLINEASM &"mov\09fp, fp\09\09// marker for objc_retainAutoreleaseReturnValue", 1
+    BL @objc_retainAutoreleasedReturnValue, csr_aarch64_aapcs, implicit-def dead $lr, implicit $sp, implicit $x0, implicit-def $sp, implicit-def $x0
+  bb.2:
+    liveins: $x0
+    $fp, $lr = LDPXi $sp, 2
+    RET undef $lr
+...
+
+# CHECK-NOT: name: OUTLINED_FUNCTION_

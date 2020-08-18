@@ -24,6 +24,9 @@
 #include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/Bitcode/BitcodeWriter.h"
 #include "llvm/Bitcode/BitcodeWriterPass.h"
+#ifdef __FACEBOOK__
+#include "llvm/CodeGen/StableHashTree.h"
+#endif
 #include "llvm/Config/llvm-config.h"
 #include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/DiagnosticPrinter.h"
@@ -83,6 +86,17 @@ extern cl::opt<std::optional<uint64_t>, false, remarks::HotnessThresholdParser>
     RemarksHotnessThreshold;
 extern cl::opt<std::string> RemarksFormat;
 }
+#if defined(__FACEBOOK__)
+#include "pika/LTO/ThinLTOCodeGeneratorExtras.h"
+
+cl::opt<bool> ThinLTOTwoCodegenRounds(
+    "thinlto-two-codegen-rounds", cl::init(false), cl::Hidden,
+    cl::desc("Whether to run two rounds of codegen. In particular, this "
+             "enables the machine-outliner to gather and propagate state "
+             "between different modules (default = off)"));
+extern cl::opt<bool> UseSingletonMachineOutlinerHashTree;
+extern cl::opt<std::string> OutlinerHashTreeMode;
+#endif
 
 namespace {
 
@@ -426,6 +440,50 @@ public:
                                        toString(std::move(Err)).c_str()));
   }
 };
+#ifdef __FACEBOOK__
+// This variable gets set when running ThinLTO with two codegen rounds.
+static llvm::SmallString<128> TwoCodegenRoundsSaveCopyDir;
+
+static std::unique_ptr<MemoryBuffer>
+ProcessThinLTOModuleFromSavedCopy(TargetMachine &TM, unsigned count) {
+  std::string SaveCopyPath =
+      (TwoCodegenRoundsSaveCopyDir + llvm::Twine(count) + ".saved_copy.bc")
+          .str();
+  std::unique_ptr<MemoryBuffer> Res;
+  {
+    auto FileOrError = MemoryBuffer::getFile(SaveCopyPath);
+    if (!FileOrError) {
+      errs() << "  not found: " << SaveCopyPath << "\n";
+      report_fatal_error(
+          "ProcessThinLTOModuleFromSavedCopy: Could not find temporary file");
+    }
+    std::unique_ptr<MemoryBuffer> FileBuffer = std::move(*FileOrError);
+
+    LLVMContext Context;
+    Context.setDiscardValueNames(LTODiscardValueNames);
+    Context.enableDebugTypeODRUniquing();
+    auto DiagFileOrErr = lto::setupLLVMOptimizationRemarks(
+        Context, RemarksFilename, RemarksPasses, RemarksFormat,
+        RemarksWithHotness, count);
+    if (!DiagFileOrErr) {
+      errs() << "Error: " << toString(DiagFileOrErr.takeError()) << "\n";
+      report_fatal_error(
+          "ProcessThinLTOModuleFromSavedCopy: Can't get an output file for the "
+          "remarks");
+    }
+
+    auto RestoredModule = llvm::parseBitcodeFile(*FileBuffer, Context);
+    if (!RestoredModule)
+      llvm::errs() << "ProcessThinLTOModuleFromSavedCopy: could not parse "
+                      "Bitcode buffer \n";
+
+    (*RestoredModule)->setThinLTOCount(count);
+    Res = codegenModule(**RestoredModule, TM);
+  }
+  sys::fs::remove(SaveCopyPath);
+  return Res;
+}
+#endif
 
 static std::unique_ptr<MemoryBuffer>
 ProcessThinLTOModule(Module &TheModule, ModuleSummaryIndex &Index,
@@ -498,6 +556,11 @@ ProcessThinLTOModule(Module &TheModule, ModuleSummaryIndex &Index,
     return std::make_unique<SmallVectorMemoryBuffer>(
         std::move(OutputBuffer), /*RequiresNullTerminator=*/false);
   }
+#ifdef __FACEBOOK__
+  saveTempBitcode(TheModule, TwoCodegenRoundsSaveCopyDir, count,
+                  ".saved_copy.bc");
+  TheModule.setThinLTOCount(count);
+#endif
 
   return codegenModule(TheModule, TM);
 }
@@ -1131,6 +1194,19 @@ void ThinLTOCodeGenerator::run() {
   TimeTraceScopeExit.release();
 
   // Parallel optimizer + codegen
+#ifdef __FACEBOOK__
+  if (ThinLTOTwoCodegenRounds) {
+    // TODO: Make temp dir unique
+    llvm::sys::path::system_temp_directory(true, TwoCodegenRoundsSaveCopyDir);
+    llvm::sys::path::append(TwoCodegenRoundsSaveCopyDir, "saved_copies");
+    sys::fs::create_directory(TwoCodegenRoundsSaveCopyDir);
+    TwoCodegenRoundsSaveCopyDir += "/";
+    dbgs() << "TwoCodegenRoundsSaveCopyDir: " << TwoCodegenRoundsSaveCopyDir
+           << "\n";
+    UseSingletonMachineOutlinerHashTree = true;
+    OutlinerHashTreeMode = "write";
+  }
+#endif
   {
     ThreadPool Pool(heavyweight_hardware_concurrency(ThreadCount));
     for (auto IndexCount : ModulesOrdering) {
@@ -1194,6 +1270,14 @@ void ThinLTOCodeGenerator::run() {
             DisableCodeGen, SaveTempsDir, Freestanding, OptLevel, count,
             DebugPassManager);
 
+#ifdef __FACEBOOK__
+        // We are in the first round here.
+        // We are not going to store the result now, but only after the
+        // second round below.
+        if (!TwoCodegenRoundsSaveCopyDir.empty())
+          return;
+#endif
+
         // Commit to the cache (if enabled)
         CacheEntry.write(*OutputBuffer);
 
@@ -1223,6 +1307,84 @@ void ThinLTOCodeGenerator::run() {
       }, IndexCount);
     }
   }
+#ifdef __FACEBOOK__
+  if (!TwoCodegenRoundsSaveCopyDir.empty()) {
+    UseSingletonMachineOutlinerHashTree = true;
+    OutlinerHashTreeMode = "read";
+    {
+      ThreadPool Pool(hardware_concurrency(ThreadCount));
+      for (auto IndexCount : ModulesOrdering) {
+        auto &ModuleBuffer = Modules[IndexCount];
+        Pool.async(
+            [&](int count) {
+              bool CacheHitInFirstRound = false;
+              if (SavedObjectsDirectoryPath.empty()) {
+                if (ProducedBinaries[count]) {
+                  CacheHitInFirstRound = true;
+                }
+              } else {
+                if (!ProducedBinaryFiles[count].empty()) {
+                  CacheHitInFirstRound = true;
+                }
+              }
+              if (CacheHitInFirstRound) {
+                errs() << "warning: using a cached file, affecting "
+                          "effectiveness of -thinlto-two-codegen-rounds\n";
+                return;
+              }
+
+              const auto &ModuleIdentifier = ModuleBuffer->getName();
+              auto &ExportList = ExportLists[ModuleIdentifier];
+
+              auto &DefinedGVSummaries =
+                  ModuleToDefinedGVSummaries[ModuleIdentifier];
+
+              // The module may be cached, this helps handling it.
+              ModuleCacheEntry CacheEntry(
+                  CacheOptions.Path, *Index, ModuleIdentifier,
+                  ImportLists[ModuleIdentifier], ExportList,
+                  ResolvedODR[ModuleIdentifier], DefinedGVSummaries, OptLevel,
+                  Freestanding, TMBuilder);
+              auto CacheEntryPath = CacheEntry.getEntryPath();
+
+              auto OutputBuffer =
+                  ProcessThinLTOModuleFromSavedCopy(*TMBuilder.create(), count);
+
+              // Commit to the cache (if enabled)
+              CacheEntry.write(*OutputBuffer);
+
+              if (SavedObjectsDirectoryPath.empty()) {
+                // We need to generated a memory buffer for the linker.
+                if (!CacheEntryPath.empty()) {
+                  // When cache is enabled, reload from the cache if possible.
+                  // Releasing the buffer from the heap and reloading it from
+                  // the cache file with mmap helps us to lower memory pressure.
+                  // The freed memory can be used for the next input file.
+                  // The final binary link will read from the VFS cache
+                  // (hopefully!) or from disk (if the memory pressure was too
+                  // high).
+                  auto ReloadedBufferOrErr = CacheEntry.tryLoadingBuffer();
+                  if (auto EC = ReloadedBufferOrErr.getError()) {
+                    // On error, keep the preexisting buffer and print a
+                    // diagnostic.
+                    errs() << "error: can't reload cached file '"
+                           << CacheEntryPath << "': " << EC.message() << "\n";
+                  } else {
+                    OutputBuffer = std::move(*ReloadedBufferOrErr);
+                  }
+                }
+                ProducedBinaries[count] = std::move(OutputBuffer);
+                return;
+              }
+              ProducedBinaryFiles[count] =
+                  writeGeneratedObject(count, CacheEntryPath, *OutputBuffer);
+            },
+            IndexCount);
+      }
+    }
+    TwoCodegenRoundsSaveCopyDir.clear();
+  }
+#endif
 
   pruneCache(CacheOptions.Path, CacheOptions.Policy, ProducedBinaries);
 
