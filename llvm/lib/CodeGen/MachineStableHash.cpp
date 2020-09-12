@@ -192,3 +192,17 @@ stable_hash llvm::stableHashValue(const MachineInstr &MI, bool HashVRegs,
   return stable_hash_combine_range(HashComponents.begin(),
                                    HashComponents.end());
 }
+
+std::vector<stable_hash>
+llvm::stableHashMachineInstrs(MachineBasicBlock::iterator &Begin,
+                              const MachineBasicBlock::iterator &End) {
+  std::vector<stable_hash> Sequence;
+  for (auto I = Begin; I != End; I++) {
+    const MachineInstr &MI = *I;
+    stable_hash Hash = stableHashValue(MI);
+    if (!Hash)
+      return {};
+    Sequence.push_back(Hash);
+  }
+  return Sequence;
+}

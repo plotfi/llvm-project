@@ -1,0 +1,95 @@
+
+# This is a check to make sure the external module we are sourcing our tree from
+# outlines the a Candidate Sequence.
+# RUN: llc -mtriple=aarch64--- -run-pass=machine-outliner -verify-machineinstrs \
+# RUN:   %S/../Inputs/machine-outliner-serialize-hashtree-external-multi-1.mir -o - | \
+# RUN: FileCheck --check-prefix=CHECK-EXTERNAL %s
+
+# This is a check to make sure the current file which has only a single
+# Candidate Sequence (which matches out external module) will outline the
+# Candidate based on the serialized hash tree even though it only exists in the
+# module one time.
+# RUN: llc -mtriple=aarch64--- -run-pass=machine-outliner --outliner-hash-tree-mode write \
+# RUN:   -outliner-hash-tree-filename %t1.hashtree \
+# RUN:   -verify-machineinstrs %S/../Inputs/machine-outliner-serialize-hashtree-external-multi-1.mir && \
+# RUN: llc -mtriple=aarch64--- -run-pass=machine-outliner --outliner-hash-tree-mode read \
+# RUN:   -outliner-hash-tree-filename %t1.hashtree \
+# RUN:   -verify-machineinstrs %s -o - | FileCheck --check-prefix=CHECK-HASHTREE %s
+
+# This is a check to ensure that without use of the serialized hash tree that we
+# are behaving as expected: one candidate in a module means no outlining.
+# RUN: llc -mtriple=aarch64--- -run-pass=machine-outliner \
+# RUN:   -verify-machineinstrs %s -o - | FileCheck --check-prefix=CHECK-DEFAULT %s
+
+# CHECK-EXTERNAL: OUTLINED_FUNCTION_
+# CHECK-HASHTREE: OUTLINED_FUNCTION_
+# CHECK-DEFAULT-NOT: OUTLINED_FUNCTION_
+
+--- |
+
+  @x = common global i32 0, align 4
+
+  define void @foo(i32 %a) #0 { ret void }
+  define void @bar(i32 %a) #0 { ret void }
+  define void @baz(i32 %a) #0 { ret void }
+
+  attributes #0 = { noinline noredzone }
+...
+---
+name:            foo
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $w0, $lr, $w8
+    $sp = frame-setup SUBXri $sp, 32, 0
+    $fp = frame-setup ADDXri $sp, 16, 0
+  bb.2:
+    $w15 = ORRWri $wzr, 1
+    $w15 = ORRWri $wzr, 1
+    $w15 = ORRWri $wzr, 1
+    $w15 = ORRWri $wzr, 1
+    $w15 = ORRWri $wzr, 1
+    $w15 = ORRWri $wzr, 1
+    $w15 = ORRWri $wzr, 1
+    $w8 = ORRWri $wzr, 1
+    RET undef $lr
+...
+---
+name:            bar
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $w0, $lr, $w8
+    $sp = frame-setup SUBXri $sp, 32, 0
+    $fp = frame-setup ADDXri $sp, 16, 0
+  bb.2:
+    $w15 = ORRWri $wzr, 2
+    $w15 = ORRWri $wzr, 2
+    $w15 = ORRWri $wzr, 2
+    $w15 = ORRWri $wzr, 2
+    $w15 = ORRWri $wzr, 2
+    $w15 = ORRWri $wzr, 2
+    $w15 = ORRWri $wzr, 2
+    $w8 = ORRWri $wzr, 2
+    RET undef $lr
+...
+---
+name:            baz
+tracksRegLiveness: true
+body:             |
+  bb.0:
+    liveins: $w0, $lr, $w8
+    $sp = frame-setup SUBXri $sp, 32, 0
+    $fp = frame-setup ADDXri $sp, 16, 0
+  bb.2:
+    $w15 = ORRWri $wzr, 3
+    $w15 = ORRWri $wzr, 3
+    $w15 = ORRWri $wzr, 3
+    $w15 = ORRWri $wzr, 3
+    $w15 = ORRWri $wzr, 3
+    $w15 = ORRWri $wzr, 3
+    $w15 = ORRWri $wzr, 3
+    $w8 = ORRWri $wzr, 1
+    RET undef $lr
+...
+---

@@ -61,7 +61,9 @@
 #include "llvm/ADT/Twine.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineOptimizationRemarkEmitter.h"
+#include "llvm/CodeGen/MachineStableHash.h"
 #include "llvm/CodeGen/Passes.h"
+#include "llvm/CodeGen/StableHashTree.h"
 #include "llvm/CodeGen/TargetInstrInfo.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include "llvm/IR/DIBuilder.h"
@@ -102,6 +104,23 @@ static cl::opt<unsigned> OutlinerReruns(
     "machine-outliner-reruns", cl::init(0), cl::Hidden,
     cl::desc(
         "Number of times to rerun the outliner after the initial outline"));
+
+static cl::opt<std::string> OutlinerHashTreeMode(
+    "outliner-hash-tree-mode", cl::init(""), cl::Hidden,
+    cl::desc("Outliner Hash Tree mode < none | write | read >. Anything but "
+             "'read' or 'write' mode will disable all functionality and this "
+             "is the default. In write mode, the outliner will collect hashes "
+             "of the candidate sequences in a HashTree and write the tree to "
+             "disk. In read mode, the outliner will read a provided HashTree "
+             "from disk and use the tree to aid in adjusting the threshold for "
+             "consideration of a candidate when it is present in "
+             "the HashTree loaded from disk but only occurs once in a given "
+             "module."));
+
+static cl::opt<std::string> OutlinerHashTreeFilename(
+    "outliner-hash-tree-filename", cl::init("OutlinerHashTree.out"), cl::Hidden,
+    cl::desc("Outliner Hash Tree file name written to or read from when using "
+             "-outliner-hash-tree-mode."));
 
 namespace {
 
@@ -350,6 +369,9 @@ struct MachineOutliner : public ModulePass {
   /// Set when the pass is constructed in TargetPassConfig.
   bool RunOnAllFunctions = true;
 
+  /// stable-hash of the outlined instruction sequence.
+  HashTree OutlinerHashTree;
+
   StringRef getPassName() const override { return "Machine Outliner"; }
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
@@ -361,6 +383,11 @@ struct MachineOutliner : public ModulePass {
 
   MachineOutliner() : ModulePass(ID) {
     initializeMachineOutlinerPass(*PassRegistry::getPassRegistry());
+
+    if (StringRef(OutlinerHashTreeMode).lower() == "read")
+      if (auto Err =
+              OutlinerHashTree.readHashTreeFromFile(OutlinerHashTreeFilename))
+        consumeError(std::move(Err));
   }
 
   /// Remark output explaining that not outlining a set of candidates would be
@@ -566,6 +593,41 @@ void MachineOutliner::findCandidates(
       }
     }
 
+    std::vector<stable_hash> StableHashSequence;
+    bool IsCandidateInHashTree = false;
+    bool IsSingleCandidateInHashTree = false;
+    // If we are not either populating (write) or using (read) a HashTree
+    // with the Outliner then don't compute a StableHashSequence.
+    if (CandidatesForRepeatedSeq.size() &&
+        (StringRef(OutlinerHashTreeMode).lower() == "write" ||
+         StringRef(OutlinerHashTreeMode).lower() == "read")) {
+      auto &C = CandidatesForRepeatedSeq.front();
+      auto CandidateBegin = C.front();
+      const auto CandidateEnd = std::next(C.back());
+
+      LLVM_DEBUG({
+        llvm::dbgs() << "Potential Hash Candidate:\n";
+        for (auto I = CandidateBegin, E = CandidateEnd; I != E; ++I) {
+          llvm::dbgs() << "# MI: ";
+          I->dump();
+        }
+        llvm::dbgs() << "\n";
+      });
+
+      StableHashSequence =
+          stableHashMachineInstrs(CandidateBegin, CandidateEnd);
+
+      IsCandidateInHashTree =
+          !StableHashSequence.empty() &&
+          OutlinerHashTree.findInHashTree(StableHashSequence);
+
+      IsSingleCandidateInHashTree =
+          IsCandidateInHashTree && CandidatesForRepeatedSeq.size() == 1;
+
+      if (IsSingleCandidateInHashTree)
+        CandidatesForRepeatedSeq.push_back(CandidatesForRepeatedSeq.front());
+    }
+
     // We've found something we might want to outline.
     // Create an OutlinedFunction to store it and check if it'd be beneficial
     // to outline.
@@ -584,6 +646,23 @@ void MachineOutliner::findCandidates(
     // FIXME: This should take target-specified instruction sizes into account.
     if (OF.Candidates.size() < 2)
       continue;
+
+    // Set the StableHashSequence for this OutlinedFunction if it either exists
+    // in the HashTree or if we are building a HashTree in OutlinerHashTree
+    // write mode.
+    if (IsCandidateInHashTree ||
+        StringRef(OutlinerHashTreeMode).lower() == "write") {
+      OF.StableHashSequence = StableHashSequence;
+      OF.DoesSequenceMatcheOffModuleCandidate = true;
+    }
+
+    // NOTE: This is a not so nice way to trick the backend outliner code to
+    // play nice. I really want some feedback here because currently the
+    // threshold for candidate counts in the backends is 2. But in a case where
+    // We have information that an external module could have an additional
+    // candidate this breaks down.
+    if (IsSingleCandidateInHashTree)
+      OF.Candidates.pop_back();
 
     // Is it better to outline this candidate than not?
     if (OF.getBenefit() < 1) {
@@ -744,6 +823,8 @@ bool MachineOutliner::outline(Module &M,
     return LHS.getBenefit() > RHS.getBenefit();
   });
 
+  std::vector<std::vector<stable_hash>> ModuleStableHashSequences;
+
   // Walk over each function, outlining them as we go along. Functions are
   // outlined greedily, based off the sort above.
   for (OutlinedFunction &OF : FunctionList) {
@@ -759,6 +840,10 @@ bool MachineOutliner::outline(Module &M,
     // If we made it unbeneficial to outline this function, skip it.
     if (OF.getBenefit() < 1)
       continue;
+
+    if (OF.StableHashSequence.size()) {
+      ModuleStableHashSequences.push_back(OF.StableHashSequence);
+    }
 
     // It's beneficial. Create the function and outline its sequence's
     // occurrences.
@@ -849,6 +934,13 @@ bool MachineOutliner::outline(Module &M,
       // Statistics.
       NumOutlined++;
     }
+  }
+
+  // If we are not in HashTree write mode, then we do not want to modify
+  // the current state of the hash tree at this time.
+  if (StringRef(OutlinerHashTreeMode).lower() == "write" &&
+      ModuleStableHashSequences.size()) {
+    OutlinerHashTree.insertIntoHashTree(ModuleStableHashSequences);
   }
 
   LLVM_DEBUG(dbgs() << "OutlinedSomething = " << OutlinedSomething << "\n";);
@@ -977,11 +1069,35 @@ void MachineOutliner::emitInstrCountChangedRemark(
   }
 }
 
+static std::unordered_map<stable_hash, std::string>
+getStableHashDebugStrings(MachineModuleInfo &MMI, Module &M) {
+  std::unordered_map<stable_hash, std::string> StableHashMIStrings;
+  for (auto &F : M) {
+    const MachineFunction &MF = MMI.getOrCreateMachineFunction(F);
+    for (const auto &BB : MF) {
+      for (const auto &MI : BB) {
+        std::string MIStr;
+        raw_string_ostream OS(MIStr);
+        MI.print(OS, true, false, false, false);
+        StableHashMIStrings[stableHashValue(MI)] = MIStr;
+      }
+    }
+  }
+
+  return StableHashMIStrings;
+}
+
 bool MachineOutliner::runOnModule(Module &M) {
   // Check if there's anything in the module. If it's empty, then there's
   // nothing to outline.
   if (M.empty())
     return false;
+
+  std::unordered_map<stable_hash, std::string> StableHashMIStrings;
+  LLVM_DEBUG({
+    StableHashMIStrings = getStableHashDebugStrings(
+        getAnalysis<MachineModuleInfoWrapperPass>().getMMI(), M);
+  });
 
   // Number to append to the current outlined function.
   unsigned OutlinedFunctionNum = 0;
@@ -1000,6 +1116,17 @@ bool MachineOutliner::runOnModule(Module &M) {
       });
       break;
     }
+  }
+
+  LLVM_DEBUG({
+    llvm::dbgs() << "Dump Outliner Hash Tree:\n";
+    OutlinerHashTree.dump(llvm::dbgs(), StableHashMIStrings);
+  });
+
+  if (StringRef(OutlinerHashTreeMode).lower() == "write") {
+    if (auto Err =
+            OutlinerHashTree.writeHashTreeToFile(OutlinerHashTreeFilename))
+      consumeError(std::move(Err));
   }
 
   return true;

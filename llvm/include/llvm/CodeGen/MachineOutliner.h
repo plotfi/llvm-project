@@ -19,6 +19,7 @@
 #include "llvm/CodeGen/LiveRegUnits.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/CodeGen/StableHashing.h"
 #include "llvm/CodeGen/TargetRegisterInfo.h"
 
 namespace llvm {
@@ -180,8 +181,24 @@ public:
   /// Target-defined identifier for constructing a frame for this function.
   unsigned FrameConstructionID = 0;
 
+  /// Tells if there is an instance of this OutlinedFunction that is outlined in
+  /// another module. DoesSequenceMatchesOffModule helps getBenefit() to
+  /// consider one additional candidate match that may exists outside of the
+  /// current module.
+  bool DoesSequenceMatcheOffModuleCandidate = false;
+
+  /// The sequence of stable_hash'es for a Candidate in Candidates.
+  /// StableHashSequence is empty if computing hashes is disabled or if
+  /// one of the MachineOperands in one of the MachineInstrs in the Candidates
+  /// is not able have a stable_hash computed.
+  std::vector<stable_hash> StableHashSequence;
+
   /// Return the number of candidates for this \p OutlinedFunction.
-  unsigned getOccurrenceCount() const { return Candidates.size(); }
+  unsigned getOccurrenceCount() const {
+    if (DoesSequenceMatcheOffModuleCandidate)
+      return Candidates.size() + 1;
+    return Candidates.size();
+  }
 
   /// Return the number of bytes it would take to outline this
   /// function.
