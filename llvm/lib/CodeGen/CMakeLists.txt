@@ -128,6 +128,10 @@ add_llvm_component_library(LLVMCodeGen
   MachineOptimizationRemarkEmitter.cpp
   MachineOutliner.cpp
   MachinePassManager.cpp
+#ifdef __FACEBOOK__
+  StableHashTree.cpp
+  MachineOutlinerGlobal.cpp
+#endif
   MachinePipeliner.cpp
   MachinePostDominators.cpp
   MachineRegionInfo.cpp

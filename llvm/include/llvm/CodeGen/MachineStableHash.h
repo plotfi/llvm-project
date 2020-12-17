@@ -14,6 +14,10 @@
 #ifndef LLVM_CODEGEN_MACHINESTABLEHASH_H
 #define LLVM_CODEGEN_MACHINESTABLEHASH_H
 
+#ifdef __FACEBOOK__
+#include "llvm/CodeGen/MachineBasicBlock.h"
+#endif // __FACEBOOK__
+
 #include "llvm/CodeGen/StableHashing.h"
 
 namespace llvm {
@@ -29,6 +33,13 @@ stable_hash stableHashValue(const MachineInstr &MI, bool HashVRegs = false,
 stable_hash stableHashValue(const MachineBasicBlock &MBB);
 stable_hash stableHashValue(const MachineFunction &MF);
 
+#ifdef __FACEBOOK__
+/// \returns a collection of stable_hashes for each of the MachineInstrs of
+/// a given MachineBasicBlock from iterator \p Begin to \p End.
+std::vector<stable_hash>
+stableHashMachineInstrs(const MachineBasicBlock::iterator &Begin,
+                        const MachineBasicBlock::iterator &End);
+#endif // __FACEBOOK__
 } // namespace llvm
 
 #endif
