@@ -234,3 +234,19 @@ stable_hash llvm::stableHashValue(const MachineFunction &MF) {
   return stable_hash_combine_range(HashComponents.begin(),
                                    HashComponents.end());
 }
+
+#ifdef __FACEBOOK__
+std::vector<stable_hash>
+llvm::stableHashMachineInstrs(const MachineBasicBlock::iterator &Begin,
+                              const MachineBasicBlock::iterator &End) {
+  std::vector<stable_hash> Sequence;
+  for (auto I = Begin; I != End; I++) {
+    const MachineInstr &MI = *I;
+    stable_hash Hash = stableHashValue(MI);
+    if (!Hash)
+      return {};
+    Sequence.push_back(Hash);
+  }
+  return Sequence;
+}
+#endif

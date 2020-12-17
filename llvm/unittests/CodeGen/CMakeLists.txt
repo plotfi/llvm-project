@@ -31,6 +31,9 @@ add_llvm_unittest(CodeGenTests
   MachineBasicBlockTest.cpp
   MachineInstrBundleIteratorTest.cpp
   MachineInstrTest.cpp
+#ifdef __FACEBOOK__
+  StableHashTreeTest.cpp
+#endif
   MachineOperandTest.cpp
   RegAllocScoreTest.cpp
   PassManagerTest.cpp
