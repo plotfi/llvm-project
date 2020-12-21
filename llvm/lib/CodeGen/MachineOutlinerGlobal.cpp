@@ -41,6 +41,7 @@
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineOptimizationRemarkEmitter.h"
 #include "llvm/CodeGen/MachineOutliner.h"
+#include "llvm/CodeGen/MachineOutlinerGlobal.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
 #include "llvm/CodeGen/MachineStableHash.h"
 #include "llvm/CodeGen/Passes.h"
@@ -194,4 +195,12 @@ void findSingletonCandidatesFromHashTree(
         stableHashMachineInstrs(C.front(), std::next(C.back()));
     FunctionList.push_back(OF);
   }
+}
+
+HashTreeMode getMode() {
+  if (StringRef(OutlinerHashTreeMode).lower() == "read")
+    return HashTreeMode::UsingHashTree;
+  if (StringRef(OutlinerHashTreeMode).lower() == "write")
+    return HashTreeMode::BuildingHashTree;
+  return HashTreeMode::None;
 }
