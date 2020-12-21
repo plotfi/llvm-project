@@ -219,6 +219,17 @@ public:
   /// The module destructor. This will dropAllReferences.
   ~Module();
 
+#ifdef __FACEBOOK__
+  unsigned ThinLTOCount = -1; ///< ThinLTO Module Count.
+
+  /// Get the ThinLTO count which is a unique identifier among threads.
+  /// Without ThinLTO, this returns -1.
+  unsigned getThinLTOCount() { return ThinLTOCount; }
+
+  /// Set a ThinLTO count before dispatching codegen in parallel under ThinLTO.
+  void setThinLTOCount(unsigned Count) { ThinLTOCount = Count; }
+#endif
+
 /// @}
 /// @name Module Level Accessors
 /// @{
