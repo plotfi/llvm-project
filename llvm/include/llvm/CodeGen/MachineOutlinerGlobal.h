@@ -38,4 +38,13 @@ void findSingletonCandidatesFromHashTree(
     DenseMap<MachineBasicBlock *, unsigned> &MBBFlagsMap,
     std::vector<unsigned> &UnsignedVec,
     std::vector<OutlinedFunction> &FunctionList, StableHashTree &OutlinerHashTree);
+
+// In ThinLTO, we might be building or using a hash tree.
+enum class HashTreeMode {
+  None,
+  BuildingHashTree,
+  UsingHashTree,
+};
+
+HashTreeMode getMode();
 #endif
