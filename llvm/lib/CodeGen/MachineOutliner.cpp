@@ -793,7 +793,7 @@ void MachineOutliner::findCandidates(
     FunctionList.push_back(*OF);
   }
 #ifdef __FACEBOOK__
-  if (getMode() == HashTreeMode::UsingHashTree)
+  if (outliner::getMode() == HashTreeMode::UsingHashTree)
     findSingletonCandidatesFromHashTree(
         ST, Mapper.InstrList, Mapper.MBBFlagsMap, Mapper.UnsignedVec,
         FunctionList, OutlinerHashTree);
@@ -1037,7 +1037,7 @@ bool MachineOutliner::outline(Module &M,
       CombinedStableHash = stable_hash_combine_range(
           OF.StableHashSequence.begin(), OF.StableHashSequence.end());
     }
-    if (getMode() == HashTreeMode::BuildingHashTree) {
+    if (outliner::getMode() == HashTreeMode::BuildingHashTree) {
       ModuleComputedHashes++;
       if (OF.StableHashSequence.size() > 0)
         ModuleStableHashSequences.push_back(OF.StableHashSequence);
@@ -1164,7 +1164,7 @@ bool MachineOutliner::outline(Module &M,
     }
   }
 #ifdef __FACEBOOK__
-  if (getMode() == HashTreeMode::BuildingHashTree) {
+  if (outliner::getMode() == HashTreeMode::BuildingHashTree) {
     HashesComputed += ModuleComputedHashes;
     HashesDropped += ModuleDroppedHashes;
     OutlinerHashTree.insert(ModuleStableHashSequences);
@@ -1476,7 +1476,7 @@ void MachineOutliner::orderOutlinedFunctions(Module &M) {
     return;
 
   // Do not order outlined functions in the first pass of global outlining.
-  if (getMode() == HashTreeMode::BuildingHashTree)
+  if (outliner::getMode() == HashTreeMode::BuildingHashTree)
     return;
 
   MachineModuleInfo &MMI = getAnalysis<MachineModuleInfoWrapperPass>().getMMI();

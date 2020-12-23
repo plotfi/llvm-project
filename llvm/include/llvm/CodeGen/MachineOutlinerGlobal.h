@@ -46,5 +46,18 @@ enum class HashTreeMode {
   UsingHashTree,
 };
 
+namespace llvm {
+namespace outliner {
+// Return true if outlining in MF is allowed given performance constraints.
+bool allowOutline(MachineFunction &MF);
+
+// Return true if outlining in MBB is allowed given performance constraints.
+bool allowOutline(MachineBasicBlock &MBB);
+
 HashTreeMode getMode();
+void beginBuildingHashTree();
+void beginUsingHashTree();
+
+} // namespace outliner
+} // namespace llvm
 #endif
