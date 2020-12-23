@@ -24,9 +24,6 @@
 #include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/Bitcode/BitcodeWriter.h"
 #include "llvm/Bitcode/BitcodeWriterPass.h"
-#ifdef __FACEBOOK__
-#include "llvm/CodeGen/StableHashTree.h"
-#endif
 #include "llvm/Config/llvm-config.h"
 #include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/DiagnosticPrinter.h"
@@ -86,18 +83,15 @@ extern cl::opt<Optional<uint64_t>, false, remarks::HotnessThresholdParser>
 extern cl::opt<std::string> RemarksFormat;
 }
 #if defined(__FACEBOOK__)
+#include "llvm/CodeGen/StableHashTree.h"
 #include "pika/LTO/ThinLTOCodeGeneratorExtras.h"
-#endif
 
 cl::opt<bool> ThinLTOTwoCodegenRounds(
     "thinlto-two-codegen-rounds", cl::init(false), cl::Hidden,
     cl::desc("Whether to run two rounds of codegen. In particular, this "
              "enables the machine-outliner to gather and propagate state "
              "between different modules (default = off)"));
-extern cl::opt<bool> UseSingletonMachineOutlinerHashTree;
-extern cl::opt<std::string> OutlinerHashTreeMode;
 #endif
->>>>>>> 2e9b2a2c7c79 (Implement two phase codegen to enable LTO based MachineOutliner.)
 
 namespace {
 
@@ -1198,8 +1192,7 @@ void ThinLTOCodeGenerator::run() {
     TwoCodegenRoundsSaveCopyDir += "/";
     dbgs() << "TwoCodegenRoundsSaveCopyDir: " << TwoCodegenRoundsSaveCopyDir
            << "\n";
-    UseSingletonMachineOutlinerHashTree = true;
-    OutlinerHashTreeMode = "write";
+    beginBuildingHashTree();
   }
 #endif
   {
@@ -1304,8 +1297,7 @@ void ThinLTOCodeGenerator::run() {
   }
 #ifdef __FACEBOOK__
   if (!TwoCodegenRoundsSaveCopyDir.empty()) {
-    UseSingletonMachineOutlinerHashTree = true;
-    OutlinerHashTreeMode = "read";
+    beginUsingHashTree();
     {
       ThreadPool Pool(hardware_concurrency(ThreadCount));
       for (auto IndexCount : ModulesOrdering) {

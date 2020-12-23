@@ -64,6 +64,8 @@ using namespace llvm;
 using namespace ore;
 using namespace outliner;
 
+
+extern cl::opt<bool> UseSingletonMachineOutlinerHashTree;
 extern cl::opt<std::string> OutlinerHashTreeMode;
 
 std::tuple<bool, bool, std::vector<stable_hash>>
@@ -197,6 +199,8 @@ void findSingletonCandidatesFromHashTree(
   }
 }
 
+namespace llvm {
+namespace outliner {
 HashTreeMode getMode() {
   if (StringRef(OutlinerHashTreeMode).lower() == "read")
     return HashTreeMode::UsingHashTree;
@@ -204,3 +208,16 @@ HashTreeMode getMode() {
     return HashTreeMode::BuildingHashTree;
   return HashTreeMode::None;
 }
+
+void beginBuildingHashTree() {
+  UseSingletonMachineOutlinerHashTree = true;
+  OutlinerHashTreeMode = "write";
+}
+
+void beginUsingHashTree() {
+  UseSingletonMachineOutlinerHashTree = true;
+  OutlinerHashTreeMode = "read";
+}
+} // namespace outliner
+} // namespace llvm
+
