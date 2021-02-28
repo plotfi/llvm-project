@@ -12,7 +12,7 @@ entry:
   ret i8 3
 }
 
-define void @f1(%T1* noalias nocapture sret %arg,
+define void @f1(%T1* noalias nocapture %arg,
                 %T2* noalias nocapture dereferenceable(8) %arg1,
                 %T3* swiftself %arg2,
                 %T3* %Self, i8** %SelfWitnessTable) {

@@ -16,7 +16,7 @@ target triple = "arm64-apple-ios12.0.0"
 
 declare i8 @f2(i64, %T1*)
 
-define void @f1(%T2* noalias nocapture sret %arg,
+define void @f1(%T2* noalias nocapture %arg,
                 %T3* noalias nocapture dereferenceable(16) %arg1,
                 %T7* swiftself %arg2, %T7* %Self, i8** %SelfWitnessTable) {
 entry:

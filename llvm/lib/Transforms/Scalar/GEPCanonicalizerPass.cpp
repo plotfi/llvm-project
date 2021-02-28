@@ -171,8 +171,8 @@ bool runImpl(Function &F) {
 
     ClonedCodeInfo CodeInfo;
     SmallVector<ReturnInst *, 8> Returns; // Ignore returns cloned.
-    CloneFunctionInto(NewF, &F, VMap, F.getSubprogram() != nullptr, Returns, "",
-                      &CodeInfo);
+    CloneFunctionInto(NewF, &F, VMap, CloneFunctionChangeType::LocalChangesOnly,
+                      Returns, "", &CodeInfo);
 
     std::vector<Value *> OldArgValues;
     std::vector<Value *> NewArgValues;

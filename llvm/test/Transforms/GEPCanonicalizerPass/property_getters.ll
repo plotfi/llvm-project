@@ -2,15 +2,15 @@
 
 
 ; CHECK: _A:
-; CHECK-NEXT:   add  x0, x20, #16
+; CHECK-NEXT:   #16
 ; CHECK-NEXT:   b  l_A_GEPCANONED
 
 ; CHECK: _B:
-; CHECK-NEXT:   add  x0, x20, #64
+; CHECK-NEXT:   #64
 ; CHECK-NEXT:   b  l_B_GEPCANONED
 
 ; CHECK: _C:
-; CHECK-NEXT:   add  x0, x20, #112
+; CHECK-NEXT:   #112
 ; CHECK-NEXT:   b  l_C_GEPCANONED
 
 ; CHECK: l_A_GEPCANONED:
@@ -35,7 +35,9 @@ target triple = "aarch64--ios"
 %T5 = type <{ %T1, %T2, %T3, %T4, %TSS }>
 %T6 = type <{ %TSS, %T5, %T5, %T5 }>
 
-define swiftcc void @A(%T5* noalias nocapture sret %arg, %T6* noalias nocapture readonly swiftself dereferenceable(112) %arg1) #0 {
+define swiftcc void @A(%T5* noalias nocapture %arg,
+                       %T6* noalias nocapture readonly swiftself
+                       dereferenceable(112) %arg1) #0 {
 entry:
   %.title = getelementptr inbounds %T6, %T6* %arg1, i64 0, i32 1
   %i = bitcast %T5* %.title to i64*
@@ -72,7 +74,9 @@ entry:
   ret void
 }
 
-define swiftcc void @B(%T5* noalias nocapture sret %arg, %T6* noalias nocapture readonly swiftself dereferenceable(112) %arg1) #0 {
+define swiftcc void @B(%T5* noalias nocapture %arg,
+                       %T6* noalias nocapture readonly swiftself
+                       dereferenceable(112) %arg1) #0 {
 entry:
   %.content = getelementptr inbounds %T6, %T6* %arg1, i64 0, i32 2
   %i = bitcast %T5* %.content to i64*
@@ -109,7 +113,9 @@ entry:
   ret void
 }
 
-define swiftcc void @C(%T5* noalias nocapture sret %arg, %T6* noalias nocapture readonly swiftself dereferenceable(112) %arg1) #0 {
+define swiftcc void @C(%T5* noalias nocapture %arg,
+                       %T6* noalias nocapture readonly swiftself
+                       dereferenceable(112) %arg1) #0 {
 entry:
   %.body = getelementptr inbounds %T6, %T6* %arg1, i64 0, i32 3
   %i = bitcast %T5* %.body to i64*
