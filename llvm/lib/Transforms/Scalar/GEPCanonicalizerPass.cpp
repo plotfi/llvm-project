@@ -77,6 +77,10 @@ bool runImpl(Function &F) {
     for (auto *GEP : GEPGroup.second) {
       unsigned MatchCount = 0;
       for (unsigned I = 1, E = ShortGep->getNumOperands(); I != E; ++I) {
+        if (!isa<ConstantInt>(GEP->getOperand(I)) ||
+            !isa<ConstantInt>(ShortGep->getOperand(I)))
+          break;
+
         auto *CI1 = cast<ConstantInt>(GEP->getOperand(I));
         auto *CI2 = cast<ConstantInt>(ShortGep->getOperand(I));
         if (CI1->getZExtValue() != CI2->getZExtValue())
@@ -94,6 +98,11 @@ bool runImpl(Function &F) {
 
                     for (unsigned I = 1, E = ShortGep->getNumOperands(); I != E;
                          ++I) {
+
+                      if (!isa<ConstantInt>(GEP->getOperand(I)) ||
+                          !isa<ConstantInt>(ShortGep->getOperand(I)))
+                        return false;
+
                       auto *CI1 = cast<ConstantInt>(GEP->getOperand(I));
                       auto *CI2 = cast<ConstantInt>(ShortGep->getOperand(I));
                       if (CI1->getZExtValue() != CI2->getZExtValue())
@@ -111,6 +120,18 @@ bool runImpl(Function &F) {
     // If we found too few GEPs that we could turn into dependent GEPs, bail.
     if (GEPGroupMinSize > 0 && GepsToRewrite.size() < GEPGroupMinSize - 1)
       continue;
+
+    /// TODO: For now we only handle cases where the pointer operand domnates
+    /// everything (ie function argument):
+    if (isa<Instruction>(ShortGep->getPointerOperand()))
+      continue;
+
+    LLVM_DEBUG({
+      const size_t GEPGroupSize = GEPGroup.second.size();
+      llvm::dbgs() << "Found a hoistable GEP\n";
+      llvm::dbgs() << "\tGroup size: " << GEPGroupSize << "\n";
+      llvm::dbgs() << "\tFunction: " << F.getName() << "\n";
+    });
 
     Changed = true;
     Instruction *CI = ShortGep->clone();
@@ -139,106 +160,94 @@ bool runImpl(Function &F) {
     }
   }
 
-  if (BaseGeps.size()) {
+  if (!BaseGeps.size())
+    return Changed;
 
-    // Order matters with what we are about to do here, and since we did did
-    // BaseGeps.push_back() while we did llvm::Instruction::insertBefore, our
-    // BaseGeps list is reversed from the Args and Instructions.
-    std::reverse(BaseGeps.begin(), BaseGeps.end());
+  // Easiest thing to do for outlining and calling the similar IR is to call
+  // deleteBody on the original function. We will clone the base GEPs we want to
+  // keep for later insertion.
+  std::vector<Instruction *> BaseGepsClone;
+  llvm::transform(BaseGeps, std::back_inserter(BaseGepsClone),
+                  [](const Instruction *I) { return I->clone(); });
 
-    ValueToValueMapTy VMap;
-    std::vector<Type *> ArgTypes;
-    for (auto II = F.arg_begin(), IE = F.arg_end(); II != IE; ++II)
-      if (!VMap.count(&*II))
-        ArgTypes.push_back(II->getType());
+  // Order matters with what we are about to do here, and since we did did
+  // BaseGeps.push_back() while we did llvm::Instruction::insertBefore, our
+  // BaseGeps list is reversed from the Args and Instructions.
+  std::reverse(BaseGepsClone.begin(), BaseGepsClone.end());
 
-    llvm::transform(BaseGeps, std::back_inserter(ArgTypes),
-                    [](const Value *V) { return V->getType(); });
+  ValueToValueMapTy VMap;
+  std::vector<Type *> ArgTypes;
+  for (auto II = F.arg_begin(), IE = F.arg_end(); II != IE; ++II)
+    if (!VMap.count(&*II))
+      ArgTypes.push_back(II->getType());
 
-    Function *NewF = Function::Create(
-        FunctionType::get(F.getFunctionType()->getReturnType(), ArgTypes,
-                          F.getFunctionType()->isVarArg()),
-        F.getLinkage(), F.getAddressSpace(), F.getName().str() + "_GEPCANONED",
-        F.getParent());
+  llvm::transform(BaseGepsClone, std::back_inserter(ArgTypes),
+                  [](const Value *V) { return V->getType(); });
 
-    Function::arg_iterator DestI = NewF->arg_begin();
-    for (const Argument &I : F.args()) {
-      if (VMap.count(&I) == 0) {
-        DestI->setName(I.getName());
-        VMap[&I] = &*DestI++;
-      }
-    }
+  Function *NewF = Function::Create(
+      FunctionType::get(F.getFunctionType()->getReturnType(), ArgTypes,
+                        F.getFunctionType()->isVarArg()),
+      F.getLinkage(), F.getAddressSpace(), F.getName().str() + "_GEPCANONED",
+      F.getParent());
 
-    ClonedCodeInfo CodeInfo;
-    SmallVector<ReturnInst *, 8> Returns; // Ignore returns cloned.
-    CloneFunctionInto(NewF, &F, VMap, CloneFunctionChangeType::LocalChangesOnly,
-                      Returns, "", &CodeInfo);
-
-    std::vector<Value *> OldArgValues;
-    std::vector<Value *> NewArgValues;
-    for (auto II = F.arg_begin(), IE = F.arg_end(); II != IE; ++II)
-      OldArgValues.push_back(II);
-    for (auto II = NewF->arg_begin(), IE = NewF->arg_end(); II != IE; ++II)
-      NewArgValues.push_back(II);
-
-    std::vector<std::tuple<Value *, Value *>> GEPReplacePairs;
-    auto BBI = NewF->getEntryBlock().begin();
-    for (unsigned I = OldArgValues.size(); I < NewArgValues.size(); ++I)
-      GEPReplacePairs.push_back({NewF->getArg(I), &*BBI++});
-
-    for (auto &GEPReplacePair : GEPReplacePairs) {
-      auto *Arg = std::get<0>(GEPReplacePair);
-      auto *GEP = cast<GetElementPtrInst>(std::get<1>(GEPReplacePair));
-      GEP->replaceAllUsesWith(Arg);
-      GEP->eraseFromParent();
-    }
-
-    NewF->copyAttributesFrom(&F);
-    NewF->setDLLStorageClass(GlobalValue::DefaultStorageClass);
-    NewF->setLinkage(llvm::GlobalValue::PrivateLinkage);
-    NewF->addFnAttr("GEPCANONED");
-
-    // TODO: Fold this
-    std::vector<BasicBlock *> RPO;
-    ReversePostOrderTraversal<Function *> RPOT(&F);
-    for (auto &RPOTF : RPOT)
-      RPO.push_back(RPOTF);
-
-    std::vector<BasicBlock *> RemovalBBs;
-    for (auto *BB : RPO) {
-
-      std::vector<Instruction *> RemovalInsts;
-      for (auto II = BB->rbegin(), IE = BB->rend(); II != IE; ++II)
-        if (!llvm::any_of(BaseGeps, [&](Instruction *I) { return I == &*II; }))
-          RemovalInsts.push_back(&*II);
-
-      for (auto *I : RemovalInsts)
-        I->eraseFromParent();
-
-      if (&F.getEntryBlock() == BB)
-        continue;
-
-      RemovalBBs.push_back(BB);
-    }
-
-    for (auto *BB : RemovalBBs)
-      BB->eraseFromParent();
-
-    SmallVector<Value *, 6> Args;
-    for (auto II = F.arg_begin(), IE = F.arg_end(); II != IE; ++II)
-      Args.push_back(II);
-    llvm::copy(BaseGeps, std::back_inserter(Args));
-
-    auto *CallI = CallInst::Create(NewF->getFunctionType(), NewF, Args, None,
-                                   "", &F.getEntryBlock());
-    CallI->setTailCall(true);
-
-    if (F.getReturnType()->isVoidTy()) {
-      ReturnInst::Create(F.getContext(), &F.getEntryBlock());
-    } else {
-      ReturnInst::Create(F.getContext(), CallI, &F.getEntryBlock());
+  Function::arg_iterator DestI = NewF->arg_begin();
+  for (const Argument &I : F.args()) {
+    if (VMap.count(&I) == 0) {
+      DestI->setName(I.getName());
+      VMap[&I] = &*DestI++;
     }
   }
+
+  ClonedCodeInfo CodeInfo;
+  SmallVector<ReturnInst *, 8> Returns; // Ignore returns cloned.
+  CloneFunctionInto(NewF, &F, VMap, CloneFunctionChangeType::LocalChangesOnly,
+                    Returns, "", &CodeInfo);
+
+  std::vector<Value *> OldArgValues;
+  std::vector<Value *> NewArgValues;
+  for (auto II = F.arg_begin(), IE = F.arg_end(); II != IE; ++II)
+    OldArgValues.push_back(II);
+  for (auto II = NewF->arg_begin(), IE = NewF->arg_end(); II != IE; ++II)
+    NewArgValues.push_back(II);
+
+  std::vector<std::tuple<Value *, Value *>> GEPReplacePairs;
+  auto BBI = NewF->getEntryBlock().begin();
+  for (unsigned I = OldArgValues.size(); I < NewArgValues.size(); ++I)
+    GEPReplacePairs.push_back({NewF->getArg(I), &*BBI++});
+
+  for (auto &GEPReplacePair : GEPReplacePairs) {
+    auto *Arg = std::get<0>(GEPReplacePair);
+    auto *GEP = cast<GetElementPtrInst>(std::get<1>(GEPReplacePair));
+    GEP->replaceAllUsesWith(Arg);
+    GEP->eraseFromParent();
+  }
+
+  NewF->copyAttributesFrom(&F);
+  NewF->setDLLStorageClass(GlobalValue::DefaultStorageClass);
+  NewF->setLinkage(llvm::GlobalValue::PrivateLinkage);
+  NewF->addFnAttr("GEPCANONED");
+
+  F.deleteBody();
+  BasicBlock::Create(F.getContext())->insertInto(&F);
+
+  SmallVector<Value *, 6> Args;
+  for (auto II = F.arg_begin(), IE = F.arg_end(); II != IE; ++II)
+    Args.push_back(II);
+  llvm::copy(BaseGepsClone, std::back_inserter(Args));
+
+  auto *CallI = CallInst::Create(NewF->getFunctionType(), NewF, Args, None, "",
+                                 &F.getEntryBlock());
+  CallI->setTailCall(true);
+  CallI->setDebugLoc(BaseGepsClone.back()->getDebugLoc());
+
+  if (F.getReturnType()->isVoidTy()) {
+    ReturnInst::Create(F.getContext(), &F.getEntryBlock());
+  } else {
+    ReturnInst::Create(F.getContext(), CallI, &F.getEntryBlock());
+  }
+
+  for (auto *BaseGep : BaseGepsClone)
+    BaseGep->insertBefore(CallI);
 
   return Changed;
 }
