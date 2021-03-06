@@ -32,6 +32,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Scalar/GepCanonicalization.h"
 #include "llvm/Transforms/Utils/Cloning.h"
+#include <algorithm>
 #include <cassert>
 #include <string>
 #include <tuple>
@@ -170,11 +171,6 @@ bool runImpl(Function &F) {
   llvm::transform(BaseGeps, std::back_inserter(BaseGepsClone),
                   [](const Instruction *I) { return I->clone(); });
 
-  // Order matters with what we are about to do here, and since we did did
-  // BaseGeps.push_back() while we did llvm::Instruction::insertBefore, our
-  // BaseGeps list is reversed from the Args and Instructions.
-  std::reverse(BaseGepsClone.begin(), BaseGepsClone.end());
-
   ValueToValueMapTy VMap;
   std::vector<Type *> ArgTypes;
   for (auto II = F.arg_begin(), IE = F.arg_end(); II != IE; ++II)
@@ -210,10 +206,24 @@ bool runImpl(Function &F) {
   for (auto II = NewF->arg_begin(), IE = NewF->arg_end(); II != IE; ++II)
     NewArgValues.push_back(II);
 
-  std::vector<std::tuple<Value *, Value *>> GEPReplacePairs;
+  std::vector<Value *> ArgsToMap;
+  std::vector<Value *> GepsToMap;
   auto BBI = NewF->getEntryBlock().begin();
-  for (unsigned I = OldArgValues.size(); I < NewArgValues.size(); ++I)
-    GEPReplacePairs.push_back({NewF->getArg(I), &*BBI++});
+  for (unsigned I = OldArgValues.size(); I < NewArgValues.size(); ++I) {
+    ArgsToMap.push_back(NewF->getArg(I));
+    GepsToMap.push_back(&*BBI++);
+  }
+
+  // Order matters with what we are about to do here, and since we did did
+  // BaseGeps.push_back() while we did llvm::Instruction::insertBefore, our
+  // BaseGeps list is reversed from the Args and Instructions.
+  std::reverse(GepsToMap.begin(), GepsToMap.end());
+  assert(ArgsToMap.size() == GepsToMap.size() &&
+         "Expected same number of GEPs and Args.");
+
+  std::vector<std::tuple<Value *, Value *>> GEPReplacePairs;
+  for (unsigned I = 0, E = ArgsToMap.size(); I != E; ++I)
+    GEPReplacePairs.push_back({ArgsToMap[I], GepsToMap[I]});
 
   for (auto &GEPReplacePair : GEPReplacePairs) {
     auto *Arg = std::get<0>(GEPReplacePair);
