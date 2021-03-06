@@ -32,10 +32,12 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Scalar/GepCanonicalization.h"
 #include "llvm/Transforms/Utils/Cloning.h"
+#include "llvm/Transforms/Utils/FunctionComparator.h"
 #include <algorithm>
 #include <cassert>
 #include <string>
 #include <tuple>
+#include <unordered_map>
 #include <vector>
 
 using namespace llvm;
@@ -46,6 +48,12 @@ cl::opt<unsigned> GEPGroupMinSize(
     "gep-canon-group-min-size", cl::Hidden, cl::init(2), cl::ZeroOrMore,
     cl::desc("For a group of GEPs with the same base pointer, skip "
              "canonicalizing if this threshold is not reached."));
+
+cl::opt<unsigned>
+    MinFunctionHashMatch("gep-canon-min-func-hash-match", cl::Hidden,
+                         cl::init(1), cl::ZeroOrMore,
+                         cl::desc("Only canonicalize GEPs for functions that "
+                                  "have this many hash matches or more."));
 
 namespace {
 
@@ -262,11 +270,38 @@ bool runImpl(Function &F) {
   return Changed;
 }
 
+/// Returns true if function \p F is eligible for merging.
+static bool isEligibleFunction(Function *F) {
+  if (F->isDeclaration())
+    return false;
+
+  if (F->hasAvailableExternallyLinkage())
+    return false;
+
+  if (F->getFunctionType()->isVarArg())
+    return false;
+
+  return true;
+}
+
 bool runImpl(Module &M) {
+
+  // All functions in the module, ordered by hash. Functions with a unique
+  // hash value are easily eliminated.
+  std::unordered_map<FunctionComparator::FunctionHash, std::vector<Function *>>
+      HashedFuncs;
+  for (Function &Func : M)
+    if (isEligibleFunction(&Func))
+      HashedFuncs[FunctionComparator::functionHash(Func)].push_back(&Func);
+
   bool Changed = false;
   std::vector<Function *> OriginalFunctions;
-  for (auto &F : M)
-    OriginalFunctions.push_back(&F);
+
+  for (auto &E : HashedFuncs)
+    if (E.second.size() >= MinFunctionHashMatch)
+      for (auto *F : E.second)
+        OriginalFunctions.push_back(F);
+
   for (auto *F : OriginalFunctions)
     Changed |= runImpl(*F);
   return Changed;
