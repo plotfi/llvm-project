@@ -2,7 +2,7 @@
 ; RUN: opt %p/Inputs/machine-outliner-odr-input-1.ll -o %t1.bc
 ; RUN: opt %p/Inputs/machine-outliner-odr-input-2.ll -o %t2.bc
 
-; RUN: llvm-lto -thinlto-action=run --enable-machine-outliner -enable-linkonceodr-outlining=false %t.bc %t1.bc %t2.bc
+; RUN: llvm-lto -thinlto-action=run --enable-machine-outliner --use-linkonceodr-linkage-outlining=false %t.bc %t1.bc %t2.bc
 ; RUN: llvm-readelf --symbols %t1.bc.thinlto.o | FileCheck %s --check-prefix=CHECK1-NOODR
 ; RUN: llvm-readelf --symbols %t2.bc.thinlto.o | FileCheck %s --check-prefix=CHECK2-NOODR
 
@@ -14,7 +14,7 @@
 ; NOT-CHECK2-NOODR: WeakDef (0x80)
 ; NOT-CHECK2-NOODR: WeakRef (0x40)
 
-; RUN: llvm-lto -thinlto-action=run --enable-machine-outliner -enable-linkonceodr-outlining=true %t.bc %t1.bc %t2.bc
+; RUN: llvm-lto -thinlto-action=run --enable-machine-outliner --use-linkonceodr-linkage-outlining=true %t.bc %t1.bc %t2.bc
 ; RUN: llvm-readelf --symbols %t1.bc.thinlto.o | FileCheck %s --check-prefix=CHECK1-ODR
 ; RUN: llvm-readelf --symbols %t2.bc.thinlto.o | FileCheck %s --check-prefix=CHECK2-ODR
 

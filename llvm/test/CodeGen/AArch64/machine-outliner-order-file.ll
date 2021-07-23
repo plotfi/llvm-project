@@ -1,7 +1,7 @@
 ; REQUIRES: asserts
 ; RUN: opt %s -o %t.bc
-; RUN: llvm-lto -enable-lto-internalization=false -enable-machine-outliner --enable-linkonceodr-outlining=true -debug-only=order-file-state -order-outlined-functions=true -order-file-symbol=%p/Inputs/machine-outliner-order-file-symbol.txt %t.bc 2>&1 | FileCheck  %s --check-prefix=LTO-ORDER
-; RUN: llvm-lto -thinlto-action=run -enable-machine-outliner --enable-linkonceodr-outlining=true -debug-only=order-file-state -order-outlined-functions=true -order-file-symbol=%p/Inputs/machine-outliner-order-file-symbol.txt %t.bc 2>&1 | FileCheck  %s --check-prefix=THINLTO-ORDER
+; RUN: llvm-lto -enable-lto-internalization=false -enable-machine-outliner -use-linkonceodr-linkage-outlining=true -debug-only=order-file-state -order-outlined-functions=true -order-file-symbol=%p/Inputs/machine-outliner-order-file-symbol.txt %t.bc 2>&1 | FileCheck  %s --check-prefix=LTO-ORDER
+; RUN: llvm-lto -thinlto-action=run -enable-machine-outliner -use-linkonceodr-linkage-outlining=true -debug-only=order-file-state -order-outlined-functions=true -order-file-symbol=%p/Inputs/machine-outliner-order-file-symbol.txt %t.bc 2>&1 | FileCheck  %s --check-prefix=THINLTO-ORDER
 ; RUN: llvm-objdump -d --no-leading-addr --no-leading-headers --no-show-raw-insn --print-imm-hex %t.bc.thinlto.o | FileCheck %s
 
 target datalayout = "e-m:o-i64:64-i128:128-n32:64-S128"

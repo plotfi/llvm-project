@@ -113,6 +113,10 @@ STATISTIC(HashesDropped,
           "Number of failed hashing attempts for outlined functions");
 STATISTIC(NumOutlineesOrdered, "Number of outlinees that are ordered");
 
+static cl::opt<bool> UseLinkOnceODRLinkageOutlining(
+    "use-linkonceodr-linkage-outlining", cl::init(false), cl::Hidden,
+    cl::desc("Use LinkeOnceODR linkage to deduplicate the identical outlined "
+             "code (default = off)"));
 static cl::opt<bool>
     OrderOutlinedFunctions("order-outlined-functions", cl::init(true),
                            cl::Hidden,
@@ -808,7 +812,7 @@ MachineFunction *MachineOutliner::createOutlinedFunction(
   std::ostringstream NameStream;
   NameStream << "OUTLINED_FUNCTION_";
   int ThinLTOCount = (int)M.getThinLTOCount();
-  bool ApplyODR = EnableLinkOnceODROutlining && (ThinLTOCount != -1);
+  bool ApplyODR = UseLinkOnceODRLinkageOutlining && (ThinLTOCount != -1);
   if (ApplyODR) {
     // Append unique ThinLTOCount per thread under ThinLTO
     NameStream << ThinLTOCount << "_";
@@ -1451,7 +1455,7 @@ void MachineOutliner::orderOutlinedFunctions(Module &M) {
       continue;
 
     // If the name is internal and not unique, we can't order them.
-    if (!EnableLinkOnceODROutlining)
+    if (!UseLinkOnceODRLinkageOutlining)
       continue;
 
     // Skip functions that are not in the order file.
