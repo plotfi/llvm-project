@@ -112,6 +112,8 @@ STATISTIC(HashesComputed, "Number of hashing attempts for outlined functions");
 STATISTIC(HashesDropped,
           "Number of failed hashing attempts for outlined functions");
 STATISTIC(NumOutlineesOrdered, "Number of outlinees that are ordered");
+STATISTIC(SizeTotalFunctions, "Size of tatal funtions");
+STATISTIC(SizeOutlinedFunctions, "Size of outlined funtions");
 
 static cl::opt<bool> UseLinkOnceODRLinkageOutlining(
     "use-linkonceodr-linkage-outlining", cl::init(false), cl::Hidden,
@@ -539,6 +541,7 @@ struct MachineOutliner : public ModulePass {
 #ifdef __FACEBOOK__
   bool internalRunOnModule(Module &M);
   void orderOutlinedFunctions(Module &M);
+  void collectStatsOutlinedFunctions(Module &M);
 #endif
 
   /// Return a DISubprogram for OF if one exists, and null otherwise. Helper
@@ -1331,6 +1334,7 @@ bool MachineOutliner::runOnModule(Module &M) {
     OutlinedSomething = true;
 
   orderOutlinedFunctions(M);
+  collectStatsOutlinedFunctions(M);
 
   return OutlinedSomething;
 }
@@ -1422,6 +1426,49 @@ bool MachineOutliner::doOutline(Module &M, unsigned &OutlinedFunctionNum) {
   return OutlinedSomething;
 }
 #ifdef __FACEBOOK__
+// Return the size of machine function if the target implements
+// getInstSizeInBytes.
+static Optional<uint32_t> getMachineFunctionSizeInBytes(MachineFunction &MF) {
+  const TargetInstrInfo *TII = MF.getSubtarget().getInstrInfo();
+  uint32_t Size = 0;
+  for (const MachineBasicBlock &BasicBlock : MF) {
+    for (const MachineInstr &Instr : BasicBlock) {
+      uint32_t InstrSize = TII->getInstSizeInBytes(Instr);
+      if (InstrSize != ~0U) {
+        Size += InstrSize;
+      } else {
+        return {};
+      }
+    }
+  }
+
+  return Size;
+}
+
+void MachineOutliner::collectStatsOutlinedFunctions(Module &M) {
+  // Do not eollect stats in the first pass of global outlining.
+  if (getMode() == HashTreeMode::BuildingHashTree)
+    return;
+
+  MachineModuleInfo &MMI = getAnalysis<MachineModuleInfoWrapperPass>().getMMI();
+  unsigned ModuleId = M.getThinLTOCount();
+  for (auto &F : M) {
+    if (F.isDeclaration())
+      continue;
+    MachineFunction *MF = MMI.getMachineFunction(F);
+    if (!MF)
+      continue;
+
+    // Collect function size stats
+    auto ActualFunctionSize = getMachineFunctionSizeInBytes(*MF);
+    if (ActualFunctionSize) {
+      SizeTotalFunctions += *ActualFunctionSize;
+      if (F.getName().startswith("OUTLINED_FUNCTION"))
+        SizeOutlinedFunctions += *ActualFunctionSize;
+    }
+  }
+}
+
 void MachineOutliner::orderOutlinedFunctions(Module &M) {
   OrderFileSummary *OrderSummary = MIRProfileSummary::getOrderFileSummary();
   // No interest if there is no order file symbol.
