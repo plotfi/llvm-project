@@ -29,11 +29,7 @@
 using namespace llvm;
 using namespace outliner;
 
-std::tuple<bool, bool, std::vector<stable_hash>>
-getResidualCodeCosts(std::vector<Candidate> &CandidatesForRepeatedSeq,
-                     StableHashTree &OutlinerHashTree);
-
-void findSingletonCandidatesFromHashTree(
+void findGlobalCandidatesFromHashTree(
     SuffixTree &ST, std::vector<MachineBasicBlock::iterator> &InstrList,
     DenseMap<MachineBasicBlock *, unsigned> &MBBFlagsMap,
     std::vector<unsigned> &UnsignedVec,

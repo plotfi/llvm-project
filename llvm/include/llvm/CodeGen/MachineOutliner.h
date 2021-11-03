@@ -237,24 +237,6 @@ public:
   /// result in cross-module identical code folding.
   bool NoResidualCodeCost = false;
 
-  /// Whether the outlined function was selected because of a cross-module
-  /// identical code folding opportunity, overriding the selection criteria
-  /// in just the current module.
-  bool NoResidualCodeCostOverride = false;
-
-  /// Whether the outlined function would only cover a single instruction
-  /// sequence occurrences in this module, i.e. no repeated sequence was found
-  /// in the suffix tree, but we know through the (global) hash tree that the
-  /// instruction sequence is being outlined in a different module already.
-  /// Singleton implies NoResidualCodeCostOverride.
-  bool Singleton = false;
-
-  /// Tells if there is an instance of this OutlinedFunction that is outlined in
-  /// another module. DoesSequenceMatchesOffModule helps getBenefit() to
-  /// consider one additional candidate match that may exists outside of the
-  /// current module.
-  bool DoesSequenceMatcheOffModuleCandidate = false;
-
   /// The sequence of stable_hash'es for a Candidate in Candidates.
   /// StableHashSequence is empty if computing hashes is disabled or if
   /// one of the MachineOperands in one of the MachineInstrs in the Candidates

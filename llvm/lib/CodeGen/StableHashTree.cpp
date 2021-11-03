@@ -50,6 +50,10 @@ cl::opt<bool> UseSingletonMachineOutlinerHashTree(
 
 static std::mutex HashTreeMutex;
 static HashNode HashTreeImpl;
+
+STATISTIC(TreeNode, "Stable Hash Tree nodes");
+STATISTIC(TreeTerminalNode, "Stable Hash terminal nodes");
+STATISTIC(TreeDepth, "Stable Hash Tree Depth");
 #endif
 
 namespace llvm {
@@ -77,6 +81,11 @@ void StableHashTree::insert(const std::vector<StableHashSequence> &Sequences) {
 
     for (const auto &Sequence : Sequences)
       insert(Sequence);
+
+    // Update stats in place
+    TreeDepth = depth();
+    TreeNode = size();
+    TreeTerminalNode = size(true);
     return;
   }
 #endif

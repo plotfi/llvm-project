@@ -60,13 +60,49 @@
 #include <tuple>
 #include <vector>
 
+#define DEBUG_TYPE "global-outliner"
+
 using namespace llvm;
 using namespace ore;
 using namespace outliner;
 
-
 extern cl::opt<bool> UseSingletonMachineOutlinerHashTree;
 extern cl::opt<std::string> OutlinerHashTreeMode;
+
+cl::opt<bool>
+    OutlineDeadCodeOnly("outline-dead-code-only", cl::init(false), cl::Hidden,
+                        cl::desc("Outline dead code only identified from "
+                                 "execution profiles (default = off)"));
+cl::opt<bool>
+    OutlineColdCodeOnly("outline-cold-code-only", cl::init(false), cl::Hidden,
+                        cl::desc("Outline cold code only identified from "
+                                 "execution profiles (default = off)"));
+
+namespace llvm {
+namespace outliner {
+bool allowOutline(MachineFunction &MF) {
+  // Allow outline for all code by default.
+  if (!OutlineDeadCodeOnly && !OutlineColdCodeOnly)
+    return true;
+  if (OutlineDeadCodeOnly && MIRProfileSummary::isMachineFunctionDead(MF))
+    return true;
+  if (OutlineColdCodeOnly && MIRProfileSummary::isMachineFunctionCold(MF))
+    return true;
+  return false;
+}
+
+bool allowOutline(MachineBasicBlock &MBB) {
+  // Allow outline for all code by default.
+  if (!OutlineDeadCodeOnly && !OutlineColdCodeOnly)
+    return true;
+  if (OutlineDeadCodeOnly && MIRProfileSummary::isMachineBlockDead(MBB))
+    return true;
+  if (OutlineColdCodeOnly && MIRProfileSummary::isMachineBlockCold(MBB))
+    return true;
+  return false;
+}
+} // namespace outliner
+} // namespace llvm
 
 std::tuple<bool, bool, std::vector<stable_hash>>
 getResidualCodeCosts(std::vector<Candidate> &CandidatesForRepeatedSeq,
@@ -106,59 +142,61 @@ static const HashNode *followHashNode(stable_hash StableHash,
   return (I == Current->Successors.end()) ? nullptr : I->second.get();
 }
 
-static std::vector<MatchedEntry> getMatchedEntries(
-    SuffixTree &ST, const std::vector<MachineBasicBlock::iterator> &InstrList,
-    const std::vector<unsigned> &UnsignedVec,
-    std::vector<OutlinedFunction> &FunctionList, StableHashTree &OutlinerHashTree) {
-  // We are running in the second round of ThinLTO codegen, using a previously
-  // built hash tree. Besides considering repeated instruction sequences, which
-  // happened above, we are also going to consider "singleton" instruction
-  // sequences which only occur once in this module, but, as we can learn
-  // via the hash tree, are also going to get outlined in other modules.
+// We are going to scan all subsequences of instructions by walking the global
+// prefix tree. Because of the short outlined sequence, the subsequences are
+// either quickly matched or discarded. In practice, the average loop count in
+// the inner loop is 2.5, which makes the average time complexity almost linear
+// to the number of instructions per module.
+static std::vector<MatchedEntry>
+getMatchedEntries(SuffixTree &ST,
+                  const std::vector<MachineBasicBlock::iterator> &InstrList,
+                  const std::vector<unsigned> &UnsignedVec,
+                  std::vector<OutlinedFunction> &FunctionList,
+                  StableHashTree &OutlinerHashTree) {
 
-  // To this end, we are going to scan the instructions (following the already
-  // built data structures of the Mapper), keeping track of all matching
-  // prefixes of stable instruction hashes in the hash tree, and creating a
-  // new Candidate instance for each terminal node in the hash tree.
-
-  struct TrackedEntry {
-    size_t StartIdx;
-    size_t Length;
-    const HashNode *LastNode;
-  };
-  std::vector<TrackedEntry> TrackedEntries;
   std::vector<MatchedEntry> MatchedEntries;
   auto Size = UnsignedVec.size();
-  for (size_t Idx = 0; Idx < Size; Idx++) {
-    if (UnsignedVec.at(Idx) >= Size) {
-      TrackedEntries.clear();
+  for (size_t I = 0; I < Size; I++) {
+    if (UnsignedVec.at(I) >= Size)
       continue;
-    }
-    const MachineInstr &MI = *InstrList.at(Idx);
-    stable_hash StableHash = stableHashValue(MI);
-    if (!StableHash) {
-      TrackedEntries.clear();
+
+    const MachineInstr &MI = *InstrList.at(I);
+    stable_hash StableHashI = stableHashValue(MI);
+    if (!StableHashI)
       continue;
+
+    const HashNode *LastNode =
+        followHashNode(StableHashI, OutlinerHashTree.getHashTreeImpl());
+    if (!LastNode)
+      continue;
+
+    size_t J = I + 1;
+    for (; J < Size; J++) {
+      // Break on invalid code
+      if (UnsignedVec.at(J) >= Size)
+        break;
+
+      const MachineInstr &MJ = *InstrList.at(J);
+      stable_hash StableHashJ = stableHashValue(MJ);
+      // Break on invalid stable hash
+      if (!StableHashJ)
+        break;
+
+      LastNode = followHashNode(StableHashJ, LastNode);
+      if (!LastNode)
+        break;
+
+      if (LastNode->IsTerminal) {
+        MatchedEntries.push_back({I, J - I + 1});
+      }
     }
 
-    std::vector<TrackedEntry> NextTrackedEntries;
-    auto Add = [&](const TrackedEntry &E) {
-      NextTrackedEntries.push_back(E);
-      if (E.LastNode && E.LastNode->IsTerminal) {
-        assert(Idx == E.StartIdx + E.Length - 1);
-        MatchedEntries.push_back({E.StartIdx, E.Length});
-      }
-    };
-    const HashNode *HN =
-        followHashNode(StableHash, OutlinerHashTree.getHashTreeImpl());
-    if (HN)
-      Add({Idx, 1, HN});
-    for (const auto &E : TrackedEntries) {
-      HN = followHashNode(StableHash, E.LastNode);
-      if (HN)
-        Add({E.StartIdx, E.Length + 1, HN});
+    // Update stats on iterations of the nested loop.
+    size_t SubseqLen = J - I;
+    if (SubseqLen >= 2) {
+      TotalSubseqLen += SubseqLen;
+      CountSubseqLen++;
     }
-    TrackedEntries = NextTrackedEntries;
   }
 
   return MatchedEntries;
@@ -166,7 +204,7 @@ static std::vector<MatchedEntry> getMatchedEntries(
 
 // When using a previously built hash tree, find additional candidates by
 // scanning instructions, and matching them with nodes in the hash tree
-void findSingletonCandidatesFromHashTree(
+void findGlobalCandidatesFromHashTree(
     SuffixTree &ST, std::vector<MachineBasicBlock::iterator> &InstrList,
     DenseMap<MachineBasicBlock *, unsigned> &MBBFlagsMap,
     std::vector<unsigned> &UnsignedVec,
@@ -191,8 +229,6 @@ void findSingletonCandidatesFromHashTree(
       continue;
     }
     OF.NoResidualCodeCost = true;
-    OF.NoResidualCodeCostOverride = true;
-    OF.Singleton = true;
     OF.StableHashSequence =
         stableHashMachineInstrs(C.front(), std::next(C.back()));
     FunctionList.push_back(OF);
@@ -220,4 +256,3 @@ void beginUsingHashTree() {
 }
 } // namespace outliner
 } // namespace llvm
-
