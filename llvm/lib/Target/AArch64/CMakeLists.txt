@@ -71,7 +71,6 @@ add_llvm_target(AArch64CodeGen
   AArch64MIPeepholeOpt.cpp
   AArch64MCInstLower.cpp
   #ifdef __FACEBOOK__
-  AArch64OdrCovInstrumentation.cpp
   AArch64ObjCCallOpt.cpp
   #endif
   AArch64PromoteConstant.cpp

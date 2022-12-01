@@ -84,7 +84,10 @@ extern cl::opt<std::string> RemarksFormat;
 }
 #if defined(__FACEBOOK__)
 #include "llvm/CodeGen/StableHashTree.h"
-#include "pika/LTO/ThinLTOCodeGeneratorExtras.h"
+#include "llvm/CodeGen/MachineOutlinerGlobal.h"
+
+// NOTE: No OrderFile yet
+// #include "pika/LTO/ThinLTOCodeGeneratorExtras.h"
 
 cl::opt<bool> ThinLTOTwoCodegenRounds(
     "thinlto-two-codegen-rounds", cl::init(false), cl::Hidden,

@@ -44,6 +44,9 @@ FunctionPass *createAArch64IndirectThunks();
 FunctionPass *createAArch64SpeculationHardeningPass();
 FunctionPass *createAArch64KCFIPass();
 FunctionPass *createAArch64LoadStoreOptimizationPass();
+#ifdef __FACEBOOK__
+ModulePass *createAArch64ObjCCallOptPass();
+#endif
 ModulePass *createAArch64LowerHomogeneousPrologEpilogPass();
 FunctionPass *createAArch64SIMDInstrOptPass();
 ModulePass *createAArch64PromoteConstantPass();
@@ -87,6 +90,9 @@ void initializeAArch64SLSHardeningPass(PassRegistry&);
 void initializeAArch64SpeculationHardeningPass(PassRegistry&);
 void initializeAArch64KCFIPass(PassRegistry &);
 void initializeAArch64LoadStoreOptPass(PassRegistry&);
+#ifdef __FACEBOOK__
+void initializeAArch64ObjCCallOptPass(PassRegistry &);
+#endif
 void initializeAArch64LowerHomogeneousPrologEpilogPass(PassRegistry &);
 void initializeAArch64MIPeepholeOptPass(PassRegistry &);
 void initializeAArch64SIMDInstrOptPass(PassRegistry&);

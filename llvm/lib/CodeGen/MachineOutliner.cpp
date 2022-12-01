@@ -1292,6 +1292,8 @@ bool MachineOutliner::doOutline(Module &M, unsigned &OutlinedFunctionNum) {
 }
 #ifdef __FACEBOOK__
 void MachineOutliner::orderOutlinedFunctions(Module &M) {
+// NOOP the Orderfile work.
+#if 0
   OrderFileSummary *OrderSummary = MIRProfileSummary::getOrderFileSummary();
   // No interest if there is no order file symbol.
   if (!OrderSummary->hasOrderFileSymbols())
@@ -1367,5 +1369,6 @@ void MachineOutliner::orderOutlinedFunctions(Module &M) {
       }
     }
   }
+#endif
 }
 #endif
