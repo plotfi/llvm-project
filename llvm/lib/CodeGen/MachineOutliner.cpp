@@ -638,9 +638,10 @@ void MachineOutliner::findCandidates(
         MachineBasicBlock::iterator EndIt = Mapper.InstrList[EndIdx];
         MachineBasicBlock *MBB = StartIt->getParent();
 #ifdef __FACEBOOK__
-        // Don't create an outline candidate if a perf constraint is applied.
-        if (!outliner::allowOutline(*MBB))
-          continue;
+        // NOTE: Don't check this for non-pref constained stuff
+        // // Don't create an outline candidate if a perf constraint is applied.
+        // if (!outliner::allowOutline(*MBB))
+        //   continue;
 #endif
         CandidatesForRepeatedSeq.emplace_back(StartIdx, StringLen, StartIt,
                                               EndIt, MBB, FunctionList.size(),
