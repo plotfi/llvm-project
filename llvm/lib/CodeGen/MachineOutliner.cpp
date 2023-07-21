@@ -1410,8 +1410,8 @@ void MachineOutliner::collectStatsOutlinedFunctions(Module &M) {
   }
 }
 
-#if 0
 void MachineOutliner::orderOutlinedFunctions(Module &M) {
+#if 0
   OrderFileSummary *OrderSummary = MIRProfileSummary::getOrderFileSummary();
   // No interest if there is no order file symbol.
   if (!OrderSummary->hasOrderFileSymbols())
@@ -1487,6 +1487,6 @@ void MachineOutliner::orderOutlinedFunctions(Module &M) {
       }
     }
   }
-}
 #endif
+}
 #endif
