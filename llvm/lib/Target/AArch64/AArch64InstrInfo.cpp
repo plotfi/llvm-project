@@ -7464,6 +7464,28 @@ AArch64InstrInfo::getOutliningCandidateInfo(
     FlagsSetInAll &= C.Flags;
 
 #ifdef __FACEBOOK__
+
+  // META_TODO: This was dropped in upstream
+  // undefined on entry/exit from a function call:
+  //
+  // * Registers x16, x17, (and thus w16, w17)
+  // * Condition codes (and thus the NZCV register)
+  //
+  // Because if this, we can't outline any sequence of instructions where
+  // one
+  // of these registers is live into/across it. Thus, we need to delete
+  // those
+  // candidates.
+  auto CantGuaranteeValueAcrossCall = [&TRI](outliner::Candidate &C) {
+    // If the unsafe registers in this block are all dead, then we don't need
+    // to compute liveness here.
+    if (C.Flags & UnsafeRegsDead)
+      return false;
+    return C.isAnyUnavailableAcrossOrOutOfSeq(
+        {AArch64::W16, AArch64::W17, AArch64::NZCV}, TRI);
+  };
+
+
   // META_TODO: Find out if these need to still be here because they were
   // dropped before.
   // Are there any candidates where those registers are live?
@@ -7476,10 +7498,10 @@ AArch64InstrInfo::getOutliningCandidateInfo(
     // If the sequence doesn't have enough candidates left, then we're done.
 #ifdef __FACEBOOK__
     if (RepeatedSequenceLocs.size() == 0)
-      return outliner::OutlinedFunction();
+      return std::nullopt;
 #else
     if (RepeatedSequenceLocs.size() < 2)
-      return outliner::OutlinedFunction();
+      return std::nullopt;
 #endif
   }
 #endif
@@ -7721,7 +7743,7 @@ AArch64InstrInfo::getOutliningCandidateInfo(
     // If we dropped all of the candidates, bail out here.
 #ifdef __FACEBOOK__
     if (RepeatedSequenceLocs.size() == 0) {
-      return outliner::OutlinedFunction();
+      return std::nullopt;
     }
 #else
     if (RepeatedSequenceLocs.size() < 2) {
