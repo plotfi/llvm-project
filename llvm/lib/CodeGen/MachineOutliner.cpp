@@ -63,6 +63,7 @@
 #include "llvm/CodeGen/LivePhysRegs.h"
 #include "llvm/CodeGen/MachineModuleInfo.h"
 #include "llvm/CodeGen/MachineOptimizationRemarkEmitter.h"
+#include "llvm/CodeGen/MachineOutlinerGlobal.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/TargetInstrInfo.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
@@ -742,8 +743,8 @@ void MachineOutliner::findCandidates(
 
 #ifdef __FACEBOOK__
     if (outliner::getMode() == HashTreeMode::BuildingHashTree) {
-      auto &C = OF.Candidates.front();
-      OF.StableHashSequence =
+      auto &C = OF->Candidates.front();
+      OF->StableHashSequence =
           stableHashMachineInstrs(C.front(), std::next(C.back()));
     }
 #endif
@@ -1368,7 +1369,7 @@ bool MachineOutliner::doOutline(Module &M, unsigned &OutlinedFunctionNum) {
 #ifdef __FACEBOOK__
 // Return the size of machine function if the target implements
 // getInstSizeInBytes.
-static Optional<uint32_t> getMachineFunctionSizeInBytes(MachineFunction &MF) {
+static std::optional<uint32_t> getMachineFunctionSizeInBytes(MachineFunction &MF) {
   const TargetInstrInfo *TII = MF.getSubtarget().getInstrInfo();
   uint32_t Size = 0;
   for (const MachineBasicBlock &BasicBlock : MF) {
@@ -1409,6 +1410,7 @@ void MachineOutliner::collectStatsOutlinedFunctions(Module &M) {
   }
 }
 
+#if 0
 void MachineOutliner::orderOutlinedFunctions(Module &M) {
   OrderFileSummary *OrderSummary = MIRProfileSummary::getOrderFileSummary();
   // No interest if there is no order file symbol.
@@ -1486,4 +1488,5 @@ void MachineOutliner::orderOutlinedFunctions(Module &M) {
     }
   }
 }
+#endif
 #endif

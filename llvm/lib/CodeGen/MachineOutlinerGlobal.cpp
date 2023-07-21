@@ -78,16 +78,19 @@ cl::opt<bool>
                         cl::desc("Outline cold code only identified from "
                                  "execution profiles (default = off)"));
 
+STATISTIC(TotalSubseqLen, "Sum of subsequence length");
+STATISTIC(CountSubseqLen, "Count of subsequence length");
+
 namespace llvm {
 namespace outliner {
 bool allowOutline(MachineFunction &MF) {
   // Allow outline for all code by default.
   if (!OutlineDeadCodeOnly && !OutlineColdCodeOnly)
     return true;
-  if (OutlineDeadCodeOnly && MIRProfileSummary::isMachineFunctionDead(MF))
-    return true;
-  if (OutlineColdCodeOnly && MIRProfileSummary::isMachineFunctionCold(MF))
-    return true;
+  // if (OutlineDeadCodeOnly && MIRProfileSummary::isMachineFunctionDead(MF))
+  //   return true;
+  // if (OutlineColdCodeOnly && MIRProfileSummary::isMachineFunctionCold(MF))
+  //   return true;
   return false;
 }
 
@@ -95,10 +98,10 @@ bool allowOutline(MachineBasicBlock &MBB) {
   // Allow outline for all code by default.
   if (!OutlineDeadCodeOnly && !OutlineColdCodeOnly)
     return true;
-  if (OutlineDeadCodeOnly && MIRProfileSummary::isMachineBlockDead(MBB))
-    return true;
-  if (OutlineColdCodeOnly && MIRProfileSummary::isMachineBlockCold(MBB))
-    return true;
+  // if (OutlineDeadCodeOnly && MIRProfileSummary::isMachineBlockDead(MBB))
+  //   return true;
+  // if (OutlineColdCodeOnly && MIRProfileSummary::isMachineBlockCold(MBB))
+  //   return true;
   return false;
 }
 } // namespace outliner
@@ -149,18 +152,18 @@ static const HashNode *followHashNode(stable_hash StableHash,
 // to the number of instructions per module.
 static std::vector<MatchedEntry>
 getMatchedEntries(SuffixTree &ST,
-                  const std::vector<MachineBasicBlock::iterator> &InstrList,
-                  const std::vector<unsigned> &UnsignedVec,
+                  const SmallVector<MachineBasicBlock::iterator> &InstrList,
+                  const SmallVector<unsigned> &UnsignedVec,
                   std::vector<OutlinedFunction> &FunctionList,
                   StableHashTree &OutlinerHashTree) {
 
   std::vector<MatchedEntry> MatchedEntries;
   auto Size = UnsignedVec.size();
   for (size_t I = 0; I < Size; I++) {
-    if (UnsignedVec.at(I) >= Size)
+    if (UnsignedVec[I] >= Size)
       continue;
 
-    const MachineInstr &MI = *InstrList.at(I);
+    const MachineInstr &MI = *InstrList[I];
     stable_hash StableHashI = stableHashValue(MI);
     if (!StableHashI)
       continue;
@@ -173,10 +176,10 @@ getMatchedEntries(SuffixTree &ST,
     size_t J = I + 1;
     for (; J < Size; J++) {
       // Break on invalid code
-      if (UnsignedVec.at(J) >= Size)
+      if (UnsignedVec[J] >= Size)
         break;
 
-      const MachineInstr &MJ = *InstrList.at(J);
+      const MachineInstr &MJ = *InstrList[J];
       stable_hash StableHashJ = stableHashValue(MJ);
       // Break on invalid stable hash
       if (!StableHashJ)
@@ -205,9 +208,9 @@ getMatchedEntries(SuffixTree &ST,
 // When using a previously built hash tree, find additional candidates by
 // scanning instructions, and matching them with nodes in the hash tree
 void findGlobalCandidatesFromHashTree(
-    SuffixTree &ST, std::vector<MachineBasicBlock::iterator> &InstrList,
+    SuffixTree &ST, SmallVector<MachineBasicBlock::iterator> &InstrList,
     DenseMap<MachineBasicBlock *, unsigned> &MBBFlagsMap,
-    std::vector<unsigned> &UnsignedVec,
+    SmallVector<unsigned> &UnsignedVec,
     std::vector<OutlinedFunction> &FunctionList, StableHashTree &OutlinerHashTree) {
 
   std::vector<MatchedEntry> MatchedEntries = getMatchedEntries(
@@ -223,15 +226,15 @@ void findGlobalCandidatesFromHashTree(
                 FunctionList.size(), MBBFlagsMap[MBB]);
     CandidatesForRepeatedSeq.push_back(C);
     const TargetInstrInfo *TII = C.getMF()->getSubtarget().getInstrInfo();
-    OutlinedFunction OF =
+    std::optional<outliner::OutlinedFunction> OF =
         TII->getOutliningCandidateInfo(CandidatesForRepeatedSeq);
-    if (OF.Candidates.size() == 0) {
+    if (OF->Candidates.size() == 0) {
       continue;
     }
-    OF.NoResidualCodeCost = true;
-    OF.StableHashSequence =
+    OF->NoResidualCodeCost = true;
+    OF->StableHashSequence =
         stableHashMachineInstrs(C.front(), std::next(C.back()));
-    FunctionList.push_back(OF);
+    FunctionList.push_back(*OF);
   }
 }
 

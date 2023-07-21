@@ -30,9 +30,9 @@ using namespace llvm;
 using namespace outliner;
 
 void findGlobalCandidatesFromHashTree(
-    SuffixTree &ST, std::vector<MachineBasicBlock::iterator> &InstrList,
+    SuffixTree &ST, SmallVector<MachineBasicBlock::iterator> &InstrList,
     DenseMap<MachineBasicBlock *, unsigned> &MBBFlagsMap,
-    std::vector<unsigned> &UnsignedVec,
+    SmallVector<unsigned> &UnsignedVec,
     std::vector<OutlinedFunction> &FunctionList, StableHashTree &OutlinerHashTree);
 
 // In ThinLTO, we might be building or using a hash tree.
